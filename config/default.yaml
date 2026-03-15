@@ -1,0 +1,113 @@
+# =============================================================================
+# MODULAR SPATIAL TRANSCRIPTOMICS PIPELINE - CONFIGURATION TEMPLATE
+# =============================================================================
+# 
+# This template shows all available configuration options.
+# Copy this file and fill in the paths for your specific dataset.
+#
+# Required fields:
+#   - dataset.name
+#   - dataset.n_samples 
+#   - embeddings (at least one modality)
+#   - labels_metadata.labels_path
+#   - labels_metadata.barcode_path
+#
+# Optional fields:
+#   - embeddings[modality].description
+#   - labels_metadata.spatial_path
+#   - labels_metadata.metadata_fields
+#   - training (uses defaults if not specified)
+#   - validation (uses defaults if not specified)
+
+# =============================================================================
+# DATASET CONFIGURATION
+# =============================================================================
+dataset:
+  name: "YOUR_DATASET_NAME"          # e.g., "GEO_23342", "ZENODO_16639"
+  n_samples: null                     # e.g., 23342 (leave null for auto-detect)
+  n_classes: 5
+  class_names:
+    - "Fibrotic"
+    - "Immunosuppressive"
+    - "Invasive_Border"
+    - "Metabolic"
+    - "Normal_Adjacent"
+  description: "Your dataset description here"
+
+# =============================================================================
+# EMBEDDING MODALITIES
+# =============================================================================
+# Each modality should have:
+#   - name: Modality identifier
+#   - file_path: Path to embedding file (.npy or .csv)
+#   - file_format: 'npy' or 'csv'
+#   - n_dims: Expected embedding dimension
+#   - description: (optional) Description of the modality
+
+embeddings:
+  UNI:
+    name: "UNI"
+    file_path: "/path/to/uni_embeddings.npy"
+    file_format: "npy"
+    n_dims: 150
+    description: "UNI-150D morphology embeddings from foundation model"
+  
+  scVI:
+    name: "scVI"
+    file_path: "/path/to/scvi_embeddings.csv"
+    file_format: "csv"
+    n_dims: 128
+    description: "scVI-128D gene expression embeddings"
+  
+  # RCTD:
+  #   name: "RCTD"
+  #   file_path: "/path/to/rctd_embeddings.npy"
+  #   file_format: "npy"
+  #   n_dims: 25
+  #   description: "RCTD-25D cell composition estimates"
+
+# =============================================================================
+# LABELS AND METADATA
+# =============================================================================
+labels_metadata:
+  labels_path: "/path/to/ground_truth_labels.npy"
+  labels_format: "npy"                # 'npy' or 'csv'
+  barcode_path: "/path/to/barcodes.csv"
+  barcode_format: "csv"               # 'csv' or 'npy'
+  spatial_path: "/path/to/spatial_coords.csv"  # optional
+  metadata_fields:
+    dataset_version: "v1.0"
+    tissue_type: "primary"
+    # Add any other metadata here
+
+# =============================================================================
+# TRAINING CONFIGURATION (optional - uses defaults if not specified)
+# =============================================================================
+training:
+  hidden_dims: [256, 128, 64]        # MLP architecture
+  n_epochs: 100
+  batch_size: 32
+  learning_rate: 0.001
+  weight_decay: 1e-5
+  n_folds: 5                          # 5-fold cross-validation
+  random_seed: 42
+  use_class_weights: true             # Balance class imbalance
+  early_stopping_patience: 15
+  dropout_rate: 0.2
+
+# =============================================================================
+# VALIDATION CONFIGURATION (optional - uses defaults if not specified)
+# =============================================================================
+validation:
+  check_nan: true                     # Check for NaN values
+  check_inf: true                     # Check for infinite values
+  check_correlation: true             # Check cross-modality correlation
+  nan_threshold: 0.01                 # Max 1% NaN allowed
+  barcode_alignment_required: true    # Require exact barcode alignment
+  save_validation_report: true        # Save QC report
+
+# =============================================================================
+# OUTPUT CONFIGURATION
+# =============================================================================
+output_dir: "./results"               # Location to save all results
+input_hdf5_path: null                 # If pre-converted HDF5 file exists
