@@ -84,19 +84,21 @@ def auto_detect_embedding_files(
 
 def load_embedding_file(
     file_path: str,
-    file_format: str = "npy",
+    file_format: str = "csv",
     expected_dim: Optional[int] = None
-) -> np.ndarray:
+) -> Tuple[np.ndarray, Optional[np.ndarray]]:
     """
-    Load embedding file in specified format.
+    Load embedding file in CSV format (barcode column + embeddings).
+    
+    If CSV, returns both embeddings and barcodes extracted from first column.
     
     Args:
-        file_path: Path to embedding file
-        file_format: 'npy' or 'csv'
-        expected_dim: If provided, validate embedding dimension matches
+        file_path: Path to embedding CSV file (barcode + embeddings)
+        file_format: 'csv' (barcode as first column, then embeddings)
+        expected_dim: If provided, validate embedding dimension matches (excluding barcode)
         
     Returns:
-        Embeddings array [N_samples, N_dims]
+        Tuple of (embeddings [N_samples, N_dims], barcodes [N_samples])
         
     Raises:
         FileNotFoundError: If file does not exist
@@ -108,23 +110,28 @@ def load_embedding_file(
         raise FileNotFoundError(f"Embedding file not found: {file_path}")
     
     try:
-        if file_format.lower() == "npy":
-            embeddings = np.load(file_path)
-        elif file_format.lower() == "csv":
-            embeddings = pd.read_csv(file_path, index_col=0).values
+        if file_format.lower() == "csv":
+            df = pd.read_csv(file_path)
+            
+            # First column is barcode
+            barcodes = df.iloc[:, 0].values
+            
+            # Remaining columns are embeddings
+            embeddings = df.iloc[:, 1:].values.astype(np.float32)
+            
         else:
-            raise ValueError(f"Unsupported format: {file_format}")
+            raise ValueError(f"Unsupported format: {file_format}. Expected 'csv' with barcode column.")
         
         # Validate dimension if provided
         if expected_dim is not None:
-            actual_dim = embeddings.shape[1] if len(embeddings.shape) == 2 else 1
+            actual_dim = embeddings.shape[1]
             if actual_dim != expected_dim:
                 raise ValueError(
                     f"Dimension mismatch for {file_path}: expected {expected_dim}, got {actual_dim}"
                 )
         
-        logger.info(f"Loaded embeddings from {file_path}: shape {embeddings.shape}")
-        return embeddings
+        logger.info(f"Loaded embeddings from {file_path}: shape {embeddings.shape}, barcodes {len(barcodes)}")
+        return embeddings, barcodes
     
     except Exception as e:
         raise ValueError(f"Error loading {file_path}: {e}")
@@ -132,17 +139,19 @@ def load_embedding_file(
 
 def load_labels_file(
     file_path: str,
-    file_format: str = "npy"
-) -> np.ndarray:
+    file_format: str = "csv"
+) -> Tuple[np.ndarray, np.ndarray]:
     """
-    Load ground truth labels.
+    Load ground truth labels from CSV (barcode + label columns).
+    
+    Returns both labels and barcodes for alignment verification.
     
     Args:
-        file_path: Path to labels file
-        file_format: 'npy' or 'csv'
+        file_path: Path to labels CSV file (barcode + ecotype/label)
+        file_format: 'csv' (barcode as first column, label in second)
         
     Returns:
-        Labels array [N_samples]
+        Tuple of (labels [N_samples], barcodes [N_samples])
     """
     file_path = Path(file_path)
     
@@ -150,34 +159,51 @@ def load_labels_file(
         raise FileNotFoundError(f"Labels file not found: {file_path}")
     
     try:
-        if file_format.lower() == "npy":
-            labels = np.load(file_path)
-        elif file_format.lower() == "csv":
-            labels = pd.read_csv(file_path, index_col=0).values.flatten()
+        if file_format.lower() == "csv":
+            df = pd.read_csv(file_path)
+            
+            # First column is barcode
+            barcodes = df.iloc[:, 0].values
+            
+            # Second column is label/ecotype
+            labels = df.iloc[:, 1].values
+            
+            # Convert to integers if they are ecotypes (categorical)
+            if isinstance(labels[0], str):
+                # Map ecotype names to integers
+                unique_labels = np.unique(labels)
+                label_to_int = {label: idx for idx, label in enumerate(unique_labels)}
+                labels = np.array([label_to_int[label] for label in labels])
+            else:
+                labels = labels.astype(int)
+            
         else:
-            raise ValueError(f"Unsupported format: {file_format}")
+            raise ValueError(f"Unsupported format: {file_format}. Expected 'csv'.")
         
-        logger.info(f"Loaded labels from {file_path}: shape {labels.shape}")
-        return labels
+        logger.info(f"Loaded labels from {file_path}: shape {labels.shape}, unique classes {len(np.unique(labels))}")
+        return labels, barcodes
     
     except Exception as e:
         raise ValueError(f"Error loading labels {file_path}: {e}")
 
 
 def load_barcodes(
-    file_path: str,
+    file_path: Optional[str],
     file_format: str = "csv"
-) -> np.ndarray:
+) -> Optional[np.ndarray]:
     """
-    Load spot barcodes.
+    Load spot barcodes (optional - usually extracted from embeddings/labels CSV).
     
     Args:
-        file_path: Path to barcodes file
-        file_format: 'npy' or 'csv'
+        file_path: Path to barcodes file (optional)
+        file_format: 'csv'
         
     Returns:
-        Barcodes array [N_samples] of strings
+        Barcodes array [N_samples] of strings, or None if file_path is None
     """
+    if file_path is None:
+        return None
+        
     file_path = Path(file_path)
     
     if not file_path.exists():
@@ -185,12 +211,9 @@ def load_barcodes(
     
     try:
         if file_format.lower() == "csv":
-            df = pd.read_csv(file_path, index_col=0)
-            # If single column, extract values; if multiple, use index
-            if df.shape[1] == 0:  # Only index
-                barcodes = df.index.values
-            else:
-                barcodes = df.iloc[:, 0].values
+            df = pd.read_csv(file_path)
+            # First column is barcode
+            barcodes = df.iloc[:, 0].values
             barcodes = np.array([str(b) for b in barcodes])
         elif file_format.lower() == "npy":
             barcodes = np.load(file_path)

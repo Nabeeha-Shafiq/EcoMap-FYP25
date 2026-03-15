@@ -27,30 +27,30 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 class EmbeddingConfig(BaseModel):
-    """Configuration for embedding modality (e.g., UNI, scVI, RCTD)."""
+    """Configuration for embedding modality (image_encoder, cell_encoder, gene_encoder)."""
     
-    name: str = Field(..., description="Modality name (e.g., 'UNI', 'scVI', 'RCTD')")
-    file_path: str = Field(..., description="Path to embedding file (.npy or .csv)")
-    file_format: str = Field(default="npy", description="File format: 'npy' or 'csv'")
-    n_dims: int = Field(..., description="Expected dimension of embeddings (e.g., 150 for UNI)")
+    name: str = Field(..., description="Modality name (e.g., 'image_encoder', 'cell_encoder', 'gene_encoder')")
+    file_path: str = Field(..., description="Path to embedding CSV file (barcode column + embeddings)")
+    file_format: str = Field(default="csv", description="File format: 'csv' only (barcode + embeddings)")
+    n_dims: Optional[int] = Field(None, description="Expected dimension of embeddings (auto-detected if None)")
     description: Optional[str] = Field(None, description="Optional description of modality")
     
     @field_validator('file_format')
     @classmethod
     def validate_format(cls, v):
-        """Ensure file format is 'npy' or 'csv'."""
-        if v.lower() not in ("npy", "csv"):
-            raise ValueError("file_format must be 'npy' or 'csv'")
+        """Ensure file format is 'csv' (barcode + embeddings)."""
+        if v.lower() != "csv":
+            raise ValueError("file_format must be 'csv' with barcode column as first column")
         return v.lower()
     
     class Config:
-        json_schema_extra = {
+        schema_extra = {
             "example": {
-                "name": "UNI",
-                "file_path": "/data/uni_embeddings.npy",
-                "file_format": "npy",
+                "name": "image_encoder",
+                "file_path": "/data/image_encoder.csv",
+                "file_format": "csv",
                 "n_dims": 150,
-                "description": "UNI-150D morphology embeddings"
+                "description": "Image encoder (morphology) embeddings: barcode + 150D"
             }
         }
 
@@ -58,21 +58,22 @@ class EmbeddingConfig(BaseModel):
 class LabelsAndMetadataConfig(BaseModel):
     """Configuration for ground truth labels and metadata."""
     
-    labels_path: str = Field(..., description="Path to ground truth labels (.npy or .csv)")
-    labels_format: str = Field(default="npy", description="Format: 'npy' or 'csv'")
-    barcode_path: str = Field(..., description="Path to spot barcodes (.npy or .csv)")
-    barcode_format: str = Field(default="csv", description="Format: 'npy' or 'csv'")
+    labels_path: str = Field(..., description="Path to ground truth labels CSV (barcode + ecotype)")
+    labels_format: str = Field(default="csv", description="Format: 'csv' (barcode + label column)")
+    barcode_path: Optional[str] = Field(None, description="Path to spot barcodes (optional if in labels)")
+    barcode_format: str = Field(default="csv", description="Format: 'csv'")
     spatial_path: Optional[str] = Field(None, description="Path to spatial coordinates (.csv)")
+    patient_mapping_path: Optional[str] = Field(None, description="Path to patient mapping (.csv)")
     metadata_fields: Optional[Dict[str, Any]] = Field(None, description="Additional metadata")
     
     class Config:
-        json_schema_extra = {
+        schema_extra = {
             "example": {
-                "labels_path": "/data/ecotypes.npy",
-                "labels_format": "npy",
-                "barcode_path": "/data/barcodes.csv",
-                "barcode_format": "csv",
-                "spatial_path": "/data/spatial_coords.csv",
+                "labels_path": "/data/labels.csv",
+                "labels_format": "csv",
+                "barcode_path": None,
+                "spatial_path": "/data/spatial.csv",
+                "patient_mapping_path": "/data/patient_mapping.csv",
                 "metadata_fields": {"dataset_version": "v1.0", "tissue_type": "primary"}
             }
         }
@@ -91,7 +92,7 @@ class DatasetConfig(BaseModel):
     description: Optional[str] = Field(None, description="Dataset description")
     
     class Config:
-        json_schema_extra = {
+        schema_extra = {
             "example": {
                 "name": "GEO_23342",
                 "n_samples": 23342,
@@ -117,7 +118,7 @@ class TrainingConfig(BaseModel):
     dropout_rate: float = Field(default=0.2, description="Dropout rate")
     
     class Config:
-        json_schema_extra = {
+        schema_extra = {
             "example": {
                 "hidden_dims": [256, 128, 64],
                 "n_epochs": 100,
@@ -144,7 +145,7 @@ class ValidationConfig(BaseModel):
     save_validation_report: bool = Field(default=True, description="Save QC report")
     
     class Config:
-        json_schema_extra = {
+        schema_extra = {
             "example": {
                 "check_nan": True,
                 "check_inf": True,
@@ -176,7 +177,7 @@ class PipelineConfig(BaseModel):
         return self
     
     class Config:
-        json_schema_extra = {
+        schema_extra = {
             "example": {
                 "dataset": {
                     "name": "GEO_23342",
@@ -184,13 +185,13 @@ class PipelineConfig(BaseModel):
                     "n_classes": 5
                 },
                 "embeddings": {
-                    "UNI": {"name": "UNI", "file_path": "/data/uni.npy", "file_format": "npy", "n_dims": 150},
-                    "scVI": {"name": "scVI", "file_path": "/data/scvi.npy", "file_format": "npy", "n_dims": 128},
-                    "RCTD": {"name": "RCTD", "file_path": "/data/rctd.npy", "file_format": "npy", "n_dims": 25}
+                    "image_encoder": {"name": "image_encoder", "file_path": "/data/image_encoder.csv", "file_format": "csv", "n_dims": 150},
+                    "cell_encoder": {"name": "cell_encoder", "file_path": "/data/cell_encoder.csv", "file_format": "csv", "n_dims": 128},
+                    "gene_encoder": {"name": "gene_encoder", "file_path": "/data/gene_encoder.csv", "file_format": "csv", "n_dims": 25}
                 },
                 "labels_metadata": {
-                    "labels_path": "/data/labels.npy",
-                    "barcode_path": "/data/barcodes.csv"
+                    "labels_path": "/data/labels.csv",
+                    "spatial_path": "/data/spatial.csv"
                 },
                 "output_dir": "./results"
             }

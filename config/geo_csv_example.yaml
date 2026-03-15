@@ -1,0 +1,59 @@
+dataset:
+  name: GEO_CSV_23342
+  n_samples: 23342
+  n_classes: 2
+  class_names: [Fibrotic, Unknown]
+  description: "GEO dataset (CSV format) - 23,342 spots with image/cell/gene encoders"
+
+embeddings:
+  image_encoder:
+    name: image_encoder
+    file_path: /home/hp/Desktop/dataset_folder/FYP-1/prepared_for_modular_pipeline/geo_image_encoder.csv
+    file_format: csv
+    n_dims: 150
+    description: "Image encoder (morphology) - 150D"
+  cell_encoder:
+    name: cell_encoder
+    file_path: /home/hp/Desktop/dataset_folder/FYP-1/prepared_for_modular_pipeline/geo_cell_encoder.csv
+    file_format: csv
+    n_dims: 128
+    description: "Cell encoder (scVI cell composition) - 128D"
+  gene_encoder:
+    name: gene_encoder
+    file_path: /home/hp/Desktop/dataset_folder/FYP-1/prepared_for_modular_pipeline/geo_gene_encoder.csv
+    file_format: csv
+    n_dims: 25
+    description: "Gene encoder (RCTD deconv) - 25D"
+
+labels_metadata:
+  labels_path: /home/hp/Desktop/dataset_folder/FYP-1/prepared_for_modular_pipeline/geo_labels.csv
+  labels_format: csv
+  barcode_path: null
+  spatial_path: null
+  patient_mapping_path: null
+  metadata_fields:
+    dataset_version: "v1.0"
+    tissue_type: "primary"
+    cohort: "GEO"
+
+training:
+  hidden_dims: [256, 128, 64]
+  n_epochs: 100
+  batch_size: 32
+  learning_rate: 0.001
+  weight_decay: 0.00001
+  n_folds: 5
+  random_seed: 42
+  use_class_weights: true
+  early_stopping_patience: 15
+  dropout_rate: 0.2
+
+validation:
+  check_nan: true
+  check_inf: true
+  check_correlation: true
+  nan_threshold: 0.01
+  barcode_alignment_required: true
+  save_validation_report: true
+
+output_dir: ./results_geo_csv

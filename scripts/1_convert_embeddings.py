@@ -2,18 +2,25 @@
 """
 Script 1: Convert Embeddings to HDF5
 ====================================
-Entry point for converting multimodal embeddings from various formats (NPY, CSV)
+Entry point for converting multimodal embeddings from CSV format
 into a single HDF5 file for efficient storage and loading.
 
 This is the FIRST step in the modular pipeline.
+
+Input Format (CSV):
+    - image_encoder.csv: barcode | embedding_1 | embedding_2 | ... | embedding_N
+    - cell_encoder.csv: barcode | embedding_1 | embedding_2 | ... | embedding_M
+    - gene_encoder.csv: barcode | embedding_1 | embedding_2 | ... | embedding_K
+    - labels.csv: barcode | ecotype
+    - (optional) patient_mapping.csv: barcode | patient_id
 
 Usage:
     python scripts/1_convert_embeddings.py --config config/geo_example.yaml
     python scripts/1_convert_embeddings.py --config config/zenodo_example.yaml
 
 Features:
-    ✓ Auto-detect embedding files by modality name
-    ✓ Support both NPY and CSV formats
+    ✓ Parse CSV with barcode column + embeddings
+    ✓ Auto-detect embedding dimensions (if not specified)
     ✓ Validate barcode alignment across modalities
     ✓ Check for NaN/Inf values
     ✓ Create single HDF5 file with metadata
@@ -21,12 +28,12 @@ Features:
 
 Output:
     - Single HDF5 file with structure:
-        /embeddings/UNI    [N, 150]
-        /embeddings/scVI   [N, 128]
-        /embeddings/RCTD   [N, 25]
+        /embeddings/image_encoder    [N, 150]
+        /embeddings/cell_encoder     [N, 128]
+        /embeddings/gene_encoder     [N, 25]
         /labels            [N]
         /barcodes          [N]
-        /spatial           [N, 2]
+        /spatial           [N, 2] (optional)
         /metadata          (attributes)
 """
 
@@ -35,6 +42,7 @@ import logging
 import sys
 from pathlib import Path
 from datetime import datetime
+import numpy as np
 
 # Add src to path so we can import modules
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
@@ -117,16 +125,18 @@ Examples:
         # ===== LOAD EMBEDDINGS =====
         logger.info("\n[2/5] Loading embedding modalities...")
         embeddings_dict = {}
+        barcodes_dict = {}  # Store barcodes from each modality for alignment check
         
         for modality_name, emb_config in config.embeddings.items():
             try:
                 logger.info(f"  Loading {modality_name}...")
-                embeddings = load_embedding_file(
+                embeddings, barcodes = load_embedding_file(
                     file_path=emb_config.file_path,
                     file_format=emb_config.file_format,
                     expected_dim=emb_config.n_dims
                 )
                 embeddings_dict[modality_name] = embeddings
+                barcodes_dict[modality_name] = barcodes
                 logger.info(f"    ✓ Loaded: shape {embeddings.shape}, dtype {embeddings.dtype}")
             except Exception as e:
                 logger.error(f"  ✗ Failed to load {modality_name}: {e}")
@@ -136,17 +146,16 @@ Examples:
         logger.info("\n[3/5] Loading labels, barcodes, and metadata...")
         
         try:
-            labels = load_labels_file(
+            labels, labels_barcodes = load_labels_file(
                 file_path=config.labels_metadata.labels_path,
                 file_format=config.labels_metadata.labels_format
             )
-            logger.info(f"  ✓ Labels: shape {labels.shape}, unique classes {len(set(labels))}")
+            logger.info(f"  ✓ Labels: shape {labels.shape}, unique classes {len(np.unique(labels))}")
             
-            barcodes = load_barcodes(
-                file_path=config.labels_metadata.barcode_path,
-                file_format=config.labels_metadata.barcode_format
-            )
-            logger.info(f"  ✓ Barcodes: {len(barcodes)} samples")
+            # Use barcodes from labels file (primary source)
+            barcodes = labels_barcodes
+            barcodes_dict['labels'] = barcodes
+            logger.info(f"  ✓ Barcodes (from labels): {len(barcodes)} samples")
             
             spatial = load_spatial_coordinates(
                 file_path=config.labels_metadata.spatial_path,
@@ -167,7 +176,7 @@ Examples:
             
             # Barcode alignment
             is_aligned, msg = validate_barcode_alignment(
-                barcodes_dict={m: barcodes for m in embeddings_dict.keys()},
+                barcodes_dict=barcodes_dict,
                 embeddings_dict=embeddings_dict,
                 labels=labels
             )
