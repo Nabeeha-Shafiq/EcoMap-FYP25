@@ -1,0 +1,98 @@
+# =============================================================================
+# GEO DATASET CONFIGURATION
+# =============================================================================
+# Pre-filled configuration for GEO dataset with 23,342 spots from 5 primary tumor patients
+# Embeddings: UNI-150D + scVI-128D + RCTD-25D = 303D total
+# Ground truth: 5 ecotypes (Fibrotic, Immunosuppressive, Invasive_Border, Metabolic, Normal_Adjacent)
+#
+# Dataset characteristics:
+#   - Samples: 23,342 spots
+#   - Patients: 5 (PT_1, PT_2, PT_3, PT_4, PT_5)
+#   - Tissue: Primary tumor (GBM)
+#   - Baseline accuracy: 90.1% (5-fold CV)
+
+dataset:
+  name: "GEO_23342"
+  n_samples: 23342
+  n_classes: 5
+  class_names:
+    - "Fibrotic"
+    - "Immunosuppressive"
+    - "Invasive_Border"
+    - "Metabolic"
+    - "Normal_Adjacent"
+  description: "GEO primary tumor dataset with 23.3K spots, 5 patients"
+
+# =============================================================================
+# EMBEDDING MODALITIES
+# =============================================================================
+embeddings:
+  UNI:
+    name: "UNI"
+    file_path: "/home/hp/Desktop/dataset_folder/FYP-1/prepared_for_modular_pipeline/geo_uni_150d.npy"
+    file_format: "npy"
+    n_dims: 150
+    description: "UNI-150D morphology embeddings"
+  
+  scVI:
+    name: "scVI"
+    file_path: "/home/hp/Desktop/dataset_folder/FYP-1/prepared_for_modular_pipeline/geo_scvi_128d.npy"
+    file_format: "npy"
+    n_dims: 128
+    description: "scVI-128D gene expression embeddings"
+  
+  RCTD:
+    name: "RCTD"
+    file_path: "/home/hp/Desktop/dataset_folder/FYP-1/prepared_for_modular_pipeline/geo_rctd_25d.npy"
+    file_format: "npy"
+    n_dims: 25
+    description: "RCTD-25D cell composition estimates"
+
+# =============================================================================
+# LABELS AND METADATA
+# =============================================================================
+labels_metadata:
+  labels_path: "/home/hp/Desktop/dataset_folder/FYP-1/prepared_for_modular_pipeline/geo_labels.npy"
+  labels_format: "npy"
+  barcode_path: "/home/hp/Desktop/dataset_folder/FYP-1/prepared_for_modular_pipeline/geo_barcodes.csv"
+  barcode_format: "csv"
+  spatial_path: null
+  metadata_fields:
+    dataset_name: "GEO_Primary_Tumor"
+    dataset_version: "v1.0"
+    tissue_type: "primary"
+    patients: 5
+    baseline_accuracy: 0.901
+    embedding_dims: 303
+
+# =============================================================================
+# TRAINING CONFIGURATION
+# =============================================================================
+training:
+  hidden_dims: [256, 128, 64]        # MLP: 303D -> 256 -> 128 -> 64 -> 5
+  n_epochs: 100
+  batch_size: 32
+  learning_rate: 0.001
+  weight_decay: 1e-5
+  n_folds: 5                          # 5-fold cross-validation
+  random_seed: 42
+  use_class_weights: true             # Important: GEO has imbalanced PT_10 (97% Normal_Adjacent)
+  early_stopping_patience: 15
+  dropout_rate: 0.2
+
+# =============================================================================
+# VALIDATION CONFIGURATION
+# =============================================================================
+validation:
+  check_nan: true
+  check_inf: true
+  check_correlation: true
+  nan_threshold: 0.01
+  barcode_alignment_required: true
+  save_validation_report: true
+
+# =============================================================================
+# OUTPUT CONFIGURATION
+# =============================================================================
+output_dir: "./results_geo"
+input_hdf5_path: null

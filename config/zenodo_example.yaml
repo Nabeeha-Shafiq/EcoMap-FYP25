@@ -1,0 +1,100 @@
+# =============================================================================
+# ZENODO DATASET CONFIGURATION
+# =============================================================================
+# Pre-filled configuration for Zenodo dataset with 16,639 spots from 5 samples
+# Embeddings: UNI-150D + scVI-32D + RCTD-15D = 197D total (lower dim than GEO)
+# Ground truth: 5 ecotypes (same as GEO)
+#
+# Key differences from GEO:
+#   - Fewer total samples (16,639 vs 23,342)
+#   - Lower scVI dimension (32D vs 128D)
+#   - Lower RCTD dimension (15D vs 25D) - intentional reduction for this dataset
+#   - Baseline accuracy: 85.7% (5-fold CV) - lower due to different tissue source
+#   - Samples: T1, T4, T11, LNM6, NP10 (mix of tumor and normal)
+
+dataset:
+  name: "ZENODO_16639"
+  n_samples: 16639
+  n_classes: 5
+  class_names:
+    - "Fibrotic"
+    - "Immunosuppressive"
+    - "Invasive_Border"
+    - "Metabolic"
+    - "Normal_Adjacent"
+  description: "Zenodo dataset with 16.6K spots, mixed tissue types"
+
+# =============================================================================
+# EMBEDDING MODALITIES
+# =============================================================================
+embeddings:
+  UNI:
+    name: "UNI"
+    file_path: "/home/hp/Desktop/dataset_folder/FYP-2/prepared_for_modular_pipeline/zenodo_uni_150d.npy"
+    file_format: "npy"
+    n_dims: 150
+    description: "UNI-150D morphology embeddings"
+  
+  scVI:
+    name: "scVI"
+    file_path: "/home/hp/Desktop/dataset_folder/FYP-2/prepared_for_modular_pipeline/zenodo_scvi_32d.npy"
+    file_format: "npy"
+    n_dims: 32
+    description: "scVI-32D gene expression embeddings (lower dim than GEO)"
+  
+  RCTD:
+    name: "RCTD"
+    file_path: "/home/hp/Desktop/dataset_folder/FYP-2/prepared_for_modular_pipeline/zenodo_rctd_15d.npy"
+    file_format: "npy"
+    n_dims: 15
+    description: "RCTD-15D cell composition (intentionally reduced from 25D)"
+
+# =============================================================================
+# LABELS AND METADATA
+# =============================================================================
+labels_metadata:
+  labels_path: "/home/hp/Desktop/dataset_folder/FYP-2/prepared_for_modular_pipeline/zenodo_labels.npy"
+  labels_format: "npy"
+  barcode_path: "/home/hp/Desktop/dataset_folder/FYP-2/prepared_for_modular_pipeline/zenodo_barcodes.csv"
+  barcode_format: "csv"
+  spatial_path: null
+  metadata_fields:
+    dataset_name: "ZENODO_Mixed_Tissue"
+    dataset_version: "v1.0"
+    tissue_type: "mixed"
+    samples: ["T1", "T4", "T11", "LNM6", "NP10"]
+    baseline_accuracy: 0.857
+    embedding_dims: 197
+    note: "Lower RCTD dim (15 vs 25) is intentional for this dataset"
+
+# =============================================================================
+# TRAINING CONFIGURATION
+# =============================================================================
+training:
+  hidden_dims: [256, 128, 64]        # MLP: 197D -> 256 -> 128 -> 64 -> 5
+  n_epochs: 100
+  batch_size: 32
+  learning_rate: 0.001
+  weight_decay: 1e-5
+  n_folds: 5                          # 5-fold cross-validation (NOT LOPO)
+  random_seed: 42
+  use_class_weights: true
+  early_stopping_patience: 15
+  dropout_rate: 0.2
+
+# =============================================================================
+# VALIDATION CONFIGURATION
+# =============================================================================
+validation:
+  check_nan: true
+  check_inf: true
+  check_correlation: true
+  nan_threshold: 0.01
+  barcode_alignment_required: true
+  save_validation_report: true
+
+# =============================================================================
+# OUTPUT CONFIGURATION
+# =============================================================================
+output_dir: "./results_zenodo"
+input_hdf5_path: null

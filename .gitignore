@@ -64,5 +64,3 @@ Thumbs.db
 
 # Project-specific
 .venv/
-config/geo_example.yaml
-config/zenodo_example.yaml
