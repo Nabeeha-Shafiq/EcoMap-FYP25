@@ -53,6 +53,7 @@ from embeddings import (
     load_labels_file,
     load_barcodes,
     load_spatial_coordinates,
+    load_patient_mapping,
     validate_barcode_alignment,
     check_data_quality,
     create_hdf5_dataset
@@ -165,6 +166,15 @@ Examples:
                 logger.info(f"  ✓ Spatial coordinates: shape {spatial.shape}")
             else:
                 logger.info("  ⚠ Spatial coordinates not provided (optional)")
+            
+            patient_mapping = load_patient_mapping(
+                file_path=config.labels_metadata.patient_mapping_path,
+                file_format="csv"
+            )
+            if patient_mapping is not None:
+                logger.info(f"  ✓ Patient mapping: {len(np.unique(patient_mapping))} unique patients")
+            else:
+                logger.info("  ⚠ Patient mapping not provided (optional)")
         
         except Exception as e:
             logger.error(f"Failed to load labels/metadata: {e}")
@@ -238,6 +248,7 @@ Examples:
             labels=labels,
             barcodes=barcodes,
             spatial=spatial,
+            patient_mapping=patient_mapping,
             metadata=metadata
         )
         

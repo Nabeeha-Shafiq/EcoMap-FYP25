@@ -229,6 +229,7 @@ def load_barcodes(
         raise ValueError(f"Error loading barcodes {file_path}: {e}")
 
 
+
 def load_spatial_coordinates(
     file_path: str,
     file_format: str = "csv"
@@ -265,6 +266,48 @@ def load_spatial_coordinates(
     
     except Exception as e:
         logger.warning(f"Error loading spatial coordinates: {e}")
+        return None
+
+
+def load_patient_mapping(
+    file_path: Optional[str],
+    file_format: str = "csv"
+) -> Optional[np.ndarray]:
+    """
+    Load patient-to-barcode mapping (if provided).
+    
+    Used for visualization modules to plot per-patient analyses.
+    
+    Args:
+        file_path: Path to patient mapping file (barcode | patient_id)
+        file_format: 'csv'
+        
+    Returns:
+        Patient IDs array [N_samples] (strings), or None if not provided
+    """
+    if file_path is None:
+        return None
+    
+    file_path = Path(file_path)
+    
+    if not file_path.exists():
+        logger.warning(f"Patient mapping file not found: {file_path}")
+        return None
+    
+    try:
+        if file_format.lower() == "csv":
+            df = pd.read_csv(file_path)
+            # First column is barcode, second column is patient_id
+            patient_ids = df.iloc[:, 1].values
+            patient_ids = np.array([str(p) for p in patient_ids])
+        else:
+            raise ValueError(f"Unsupported format: {file_format}")
+        
+        logger.info(f"Loaded patient mapping: {len(patient_ids)} samples, {len(np.unique(patient_ids))} unique patients")
+        return patient_ids
+    
+    except Exception as e:
+        logger.warning(f"Error loading patient mapping: {e}")
         return None
 
 
@@ -376,6 +419,7 @@ def create_hdf5_dataset(
     labels: np.ndarray,
     barcodes: np.ndarray,
     spatial: Optional[np.ndarray] = None,
+    patient_mapping: Optional[np.ndarray] = None,
     metadata: Optional[Dict] = None
 ) -> str:
     """
@@ -387,6 +431,7 @@ def create_hdf5_dataset(
         labels: Ground truth labels [N_samples]
         barcodes: Spot barcodes [N_samples]
         spatial: Optional spatial coordinates [N_samples, 2]
+        patient_mapping: Optional patient IDs [N_samples]
         metadata: Optional metadata dict
         
     Returns:
@@ -448,6 +493,17 @@ def create_hdf5_dataset(
                     'spatial',
                     data=spatial,
                     dtype='float32',
+                    compression='gzip'
+                )
+            
+            # Create patient mapping if provided
+            if patient_mapping is not None:
+                patient_list = [str(p) for p in patient_mapping]
+                str_dtype = h5py.string_dtype(encoding='utf-8', length=None)
+                f.create_dataset(
+                    'patient_mapping',
+                    data=np.array(patient_list, dtype=object),
+                    dtype=str_dtype,
                     compression='gzip'
                 )
             

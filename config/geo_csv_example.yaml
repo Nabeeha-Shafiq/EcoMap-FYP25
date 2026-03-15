@@ -30,7 +30,7 @@ labels_metadata:
   labels_format: csv
   barcode_path: null
   spatial_path: null
-  patient_mapping_path: null
+  patient_mapping_path: /home/hp/Desktop/dataset_folder/FYP-1/prepared_for_modular_pipeline/geo_patient_mapping.csv
   metadata_fields:
     dataset_version: "v1.0"
     tissue_type: "primary"
