@@ -23,8 +23,8 @@ Color Scheme:
 
 Usage:
   viz = PostTrainingVisualizer(
-      results_dir='results/training',
-      output_dir='results/visualizations',
+      results_dir='output_dir/training/metrics',  # Must be explicitly provided
+      output_dir='output_dir/post-training/visualizations',  # Must be explicitly provided
       config=config
   )
   

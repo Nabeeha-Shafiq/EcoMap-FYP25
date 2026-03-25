@@ -130,28 +130,28 @@ def main():
     parser.add_argument(
         "--config",
         type=str,
-        default="config/geo_example.yaml",
-        help="Path to YAML configuration file (default: config/geo_example.yaml)"
+        required=True,
+        help="Path to YAML configuration file (required)"
     )
     
     parser.add_argument(
-        "--input-dir",
+        "--input-arrays-dir",
         type=str,
-        default="data/numpy_arrays",
-        help="Input directory with NumPy arrays (default: data/numpy_arrays)"
+        required=True,
+        help="Input directory with NumPy arrays from Stage 1 (required)"
     )
     
     parser.add_argument(
         "--output-dir",
         type=str,
-        default="data/preprocessed_arrays",
-        help="Output directory for preprocessed arrays (default: data/preprocessed_arrays)"
+        required=True,
+        help="Output directory for preprocessed arrays (required)"
     )
     
     args = parser.parse_args()
     
     config_path = Path(args.config)
-    input_dir = Path(args.input_dir)
+    input_dir = Path(args.input_arrays_dir)
     output_dir = Path(args.output_dir)
     
     # Create output directory

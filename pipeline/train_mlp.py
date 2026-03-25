@@ -211,6 +211,9 @@ class MLPTrainer:
             metrics_tracker=None, fold_idx: int = 0):
         """Train with early stopping"""
         
+        # Move model to device BEFORE training
+        self.model = self.model.to(self.device)
+        
         # Create data loaders
         train_data = TensorDataset(
             torch.tensor(X_train, dtype=torch.float32),
@@ -293,10 +296,40 @@ def load_data(embeddings_path: str, labels_path: str, metadata_path: str = None)
     embeddings = np.load(embeddings_path)
     print(f"  ✓ Embeddings: {embeddings.shape}")
     
-    # Load labels and barcodes
+    # Load barcodes that were saved during preprocessing  (CRITICAL - determines ordering!)
+    embeddings_dir = Path(embeddings_path).parent
+    barcodes_path = embeddings_dir / 'barcodes.npy'
+    
+    if barcodes_path.exists():
+        preprocessing_barcodes = np.load(barcodes_path, allow_pickle=True)
+        print(f"  ✓ Preprocessing barcodes loaded: {len(preprocessing_barcodes)} samples")
+    else:
+        print(f"  ⚠ WARNING: Barcodes file not found at {barcodes_path}")
+        print(f"             Will try to load from labels CSV (may cause misalignment!)")
+        preprocessing_barcodes = None
+    
+    # Load labels from CSV
     labels_df = pd.read_csv(labels_path, index_col=0)
+    print(f"  ✓ Labels file loaded: {len(labels_df)} rows")
+    
+    # CRITICAL FIX: Reindex labels to match preprocessing barcode order
+    if preprocessing_barcodes is not None:
+        # Reindex labels_df to match the preprocessing barcodes order
+        labels_df = labels_df.reindex(preprocessing_barcodes)
+        
+        if labels_df.isna().any().any():
+            print(f"  ⚠ WARNING: Some barcodes from preprocessing not found in labels!")
+            # Drop NaN rows
+            labels_df = labels_df.dropna()
+            print(f"  ✓ Kept {len(labels_df)} matching labels")
+        
+        barcodes = preprocessing_barcodes
+    else:
+        # Fallback: use barcodes from CSV (order may not match embeddings)
+        barcodes = labels_df.index.values
+    
+    # Extract labels in the correct order
     labels = labels_df.iloc[:, 0].values
-    barcodes = labels_df.index.values
     
     print(f"  ✓ Labels: {labels.shape}")
     print(f"  ✓ Barcodes: {len(barcodes)}")
@@ -335,48 +368,91 @@ def main():
     )
     
     parser.add_argument(
+        '--config',
+        type=str,
+        required=False,
+        help='Path to config.yaml file (optional - contains training parameters)'
+    )
+    
+    parser.add_argument(
         '--embeddings',
         type=str,
-        default='data/preprocessed_arrays/fused_embeddings_pca.npy',
-        help='Path to fused embeddings (default: data/preprocessed_arrays/fused_embeddings_pca.npy)'
+        required=True,
+        help='Path to fused embeddings'
     )
     
     parser.add_argument(
         '--labels',
         type=str,
-        default='data/input_dataset/barcode_labels.csv',
-        help='Path to labels CSV (default: data/input_dataset/barcode_labels.csv)'
+        required=False,
+        help='Path to labels CSV (optional if config provided)'
     )
     
     parser.add_argument(
         '--output',
         type=str,
-        default='results/training',
-        help='Output directory for results (default: results/training)'
+        required=True,
+        help='Output directory for results'
     )
     
     parser.add_argument(
         '--epochs',
         type=int,
-        default=200,
-        help='Maximum epochs (default: 200)'
+        default=None,
+        help='Maximum epochs (default: from config or 200)'
     )
     
     parser.add_argument(
         '--batch_size',
         type=int,
-        default=32,
-        help='Batch size (default: 32)'
+        default=None,
+        help='Batch size (default: from config or 32)'
     )
     
     parser.add_argument(
         '--learning_rate',
         type=float,
-        default=1e-3,
-        help='Learning rate (default: 1e-3)'
+        default=None,
+        help='Learning rate (default: from config or 1e-3)'
     )
     
     args = parser.parse_args()
+    
+    # Load config if provided
+    if args.config:
+        import yaml
+        with open(args.config, 'r') as f:
+            config = yaml.safe_load(f)
+        training_config = config.get('training', {})
+        
+        # Get labels from config if not provided via args
+        if not args.labels:
+            input_dataset_config = config.get('input_dataset', {})
+            labels_file = input_dataset_config.get('labels_file', '')
+            if labels_file:
+                labels_path = Path(labels_file)
+                if not labels_path.is_absolute():
+                    labels_path = Path.cwd() / labels_file
+                args.labels = str(labels_path)
+        
+        # Use config values as defaults if not provided via command line
+        if args.epochs is None:
+            args.epochs = training_config.get('n_epochs', 200)
+        if args.batch_size is None:
+            args.batch_size = training_config.get('batch_size', 32)
+        if args.learning_rate is None:
+            args.learning_rate = training_config.get('learning_rate', 1e-3)
+    else:
+        # Use defaults if no config
+        if args.epochs is None:
+            args.epochs = 200
+        if args.batch_size is None:
+            args.batch_size = 32
+        if args.learning_rate is None:
+            args.learning_rate = 1e-3
+        if not args.labels:
+            print("  ✗ ERROR: Either --config or --labels must be provided")
+            sys.exit(1)
     
     # Create output directory
     output_dir = Path(args.output)
@@ -438,7 +514,12 @@ def main():
     all_y_confs = []  # Collect confidence scores from each fold
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
     
-    print(f"  Device: {device}\n")
+    print(f"  Device: {device}")
+    if device == 'cuda':
+        print(f"  GPU Device: {torch.cuda.get_device_name(0)}")
+        print(f"  GPU Memory Available: {torch.cuda.get_device_properties(0).total_memory / 1e9:.2f} GB\n")
+    else:
+        print(f"  ⚠ WARNING: CUDA not available, using CPU\n")
     
     for fold_idx, (train_idx, val_idx) in enumerate(skf.split(X, y_encoded)):
         print(f"  Fold {fold_idx + 1}/5", flush=True)

@@ -23,6 +23,7 @@ from pathlib import Path
 import warnings
 import json
 import argparse
+import sys
 
 # For 3D visualization
 import plotly.graph_objects as go
@@ -37,12 +38,14 @@ warnings.filterwarnings('ignore')
 # CONFIGURATION (with command-line override support)
 # ============================================================================
 
-# Default paths (can be overridden by command-line arguments)
-DEFAULT_PREDICTIONS_FILE = 'results/training/predictions_all_spots.csv'
-DEFAULT_EMBEDDINGS_FILE = 'data/preprocessed_arrays/fused_embeddings_pca.npy'
-DEFAULT_LABEL_MAPPING_FILE = 'data/input_dataset/label_mapping.json'
-DEFAULT_METADATA_FILE = 'data/input_dataset/barcode_metadata.csv'
-DEFAULT_OUTPUT_DIR = 'results/training/spatial_visualizations_extended'
+# Default paths (DEPRECATED - use command-line arguments or config instead)
+# These constants are kept for reference only and should NOT be used as fallbacks
+# ALL paths must be explicitly provided via arguments or config file
+DEFAULT_PREDICTIONS_FILE = None  # Not used - must be provided via --predictions
+DEFAULT_EMBEDDINGS_FILE = None  # Not used - must be provided via --embeddings
+DEFAULT_LABEL_MAPPING_FILE = None  # Not used - must be provided via config or --label-mapping
+DEFAULT_METADATA_FILE = None  # Not used - must be provided via config or --metadata
+DEFAULT_OUTPUT_DIR = None  # Not used - must be provided via --output
 
 # These will be set by arguments or defaults
 PREDICTIONS_FILE = None
@@ -667,44 +670,88 @@ def main():
     parser = argparse.ArgumentParser(
         description='Generate spatial visualization heatmaps and 3D landscapes'
     )
+    
+    parser.add_argument(
+        '--config',
+        type=str,
+        help='Path to config.yaml file (contains metadata and label mapping paths)'
+    )
+    
     parser.add_argument(
         '--predictions',
         type=str,
-        default=DEFAULT_PREDICTIONS_FILE,
+        required=True,
         help='Path to predictions CSV file'
     )
+    
     parser.add_argument(
         '--metadata',
         type=str,
-        default=DEFAULT_METADATA_FILE,
-        help='Path to barcode metadata CSV file'
+        help='Path to barcode metadata CSV file (optional if config provided)'
     )
+    
     parser.add_argument(
         '--embeddings',
         type=str,
-        default=DEFAULT_EMBEDDINGS_FILE,
-        help='Path to fused embeddings NPY file'
+        required=True,
+        help='Path to fused embeddings NPY file (required)'
     )
+    
     parser.add_argument(
         '--label-mapping',
         type=str,
-        default=DEFAULT_LABEL_MAPPING_FILE,
-        help='Path to label mapping JSON file'
+        help='Path to label mapping JSON file (optional if config provided)'
     )
+    
     parser.add_argument(
         '--output',
         type=str,
-        default=DEFAULT_OUTPUT_DIR,
+        required=True,
         help='Output directory for visualizations'
     )
     
     args = parser.parse_args()
     
+    # Load config if provided
+    if args.config:
+        import yaml
+        with open(args.config, 'r') as f:
+            config = yaml.safe_load(f)
+        
+        input_dataset_config = config.get('input_dataset', {})
+        
+        # Get paths from config if not provided via command line
+        # Resolve relative to CWD
+        if not args.metadata:
+            metadata_file = input_dataset_config.get('metadata_file', '')
+            if metadata_file:
+                metadata_path = Path(metadata_file)
+                if not metadata_path.is_absolute():
+                    metadata_path = Path.cwd() / metadata_file
+                args.metadata = str(metadata_path)
+        
+        if not args.label_mapping:
+            label_mapping_file = input_dataset_config.get('label_mapping_file', '')
+            if label_mapping_file:
+                label_mapping_path = Path(label_mapping_file)
+                if not label_mapping_path.is_absolute():
+                    label_mapping_path = Path.cwd() / label_mapping_file
+                args.label_mapping = str(label_mapping_path)
+    
     # Set global variables from arguments
     PREDICTIONS_FILE = args.predictions
     METADATA_FILE = args.metadata
-    EMBEDDINGS_FILE = args.embeddings
+    if not METADATA_FILE:
+        print("ERROR: --metadata not provided and not found in config")
+        sys.exit(1)
+    
+    EMBEDDINGS_FILE = args.embeddings  # Now required argument
+    
     LABEL_MAPPING_FILE = args.label_mapping
+    if not LABEL_MAPPING_FILE:
+        print("ERROR: --label-mapping not provided and not found in config")
+        sys.exit(1)
+    
     OUTPUT_DIR = Path(args.output)
     
     # Create output directory

@@ -14,7 +14,7 @@ Features:
   - CSV export for reproducibility
 
 Usage:
-  tracker = MetricsTracker(save_dir='results/training')
+  tracker = MetricsTracker(save_dir='output_dir/metrics')  # Must be explicitly provided
   # In training loop:
   tracker.log_epoch(fold, epoch, train_loss, val_loss, is_best=True)
   tracker.log_fold_complete(fold, accuracy, precision, recall, f1)
@@ -68,12 +68,12 @@ class MetricsTracker:
     Track metrics during training for reproducible ablation studies.
     """
     
-    def __init__(self, save_dir: str = 'results/training'):
+    def __init__(self, save_dir: str):
         """
         Initialize metrics tracker.
         
         Args:
-            save_dir: Directory to save metrics files
+            save_dir: Directory to save metrics files (required)
         """
         self.save_dir = Path(save_dir)
         self.save_dir.mkdir(parents=True, exist_ok=True)

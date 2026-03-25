@@ -44,7 +44,33 @@ print("="*100 + "\n")
 # ═══════════════════════════════════════════════════════════════════════════════════════════════════
 
 # Get output directory from environment or use default
-OUTPUT_DIR = Path(os.getenv('OUTPUT_DIR', './results_test_end_end'))
+import argparse
+import yaml
+
+parser = argparse.ArgumentParser(description="Validate and visualize preprocessing outputs")
+parser.add_argument('--config', type=str, help='Path to config.yaml file')
+parser.add_argument('--preprocessed-arrays-dir', type=str, help='Path to preprocessed arrays directory')
+args = parser.parse_args()
+
+if args.config:
+    with open(args.config, 'r') as f:
+        config = yaml.safe_load(f)
+    OUTPUT_DIR = config.get('output', {}).get('output_dir')
+    if not OUTPUT_DIR:
+        print("ERROR: 'output.output_dir' not found in config file")
+        sys.exit(1)
+    
+    # Resolve relative to CWD
+    output_path = Path(OUTPUT_DIR)
+    if not output_path.is_absolute():
+        output_path = Path.cwd() / output_path
+    OUTPUT_DIR = output_path
+else:
+    OUTPUT_DIR = os.getenv('OUTPUT_DIR')
+    if not OUTPUT_DIR:
+        print("ERROR: Neither --config provided nor OUTPUT_DIR environment variable set")
+        sys.exit(1)
+    OUTPUT_DIR = Path(OUTPUT_DIR)
 PREPROCESSING_DIR = OUTPUT_DIR / "preprocessing"
 PREPROCESSING_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -64,8 +90,32 @@ HEATMAP_DIR = VISUALIZATIONS_DIR / "spatial_heatmaps"
 HEATMAP_DIR.mkdir(exist_ok=True)
 
 # Data paths
-PREPROCESSED_ARRAYS_DIR = Path("data/preprocessed_arrays")
-INPUT_DATA_DIR = Path("data/input_dataset")
+if args.preprocessed_arrays_dir:
+    PREPROCESSED_ARRAYS_DIR = Path(args.preprocessed_arrays_dir)
+else:
+    PREPROCESSED_ARRAYS_DIR = Path(os.getenv('WORKING_DIR', ''))
+    if not PREPROCESSED_ARRAYS_DIR or not PREPROCESSED_ARRAYS_DIR.name:
+        print("ERROR: Neither --preprocessed-arrays-dir provided nor WORKING_DIR environment variable set")
+        sys.exit(1)
+    PREPROCESSED_ARRAYS_DIR = PREPROCESSED_ARRAYS_DIR / "preprocessed_arrays"
+
+if args.config:
+    with open(args.config, 'r') as f:
+        config = yaml.safe_load(f)
+    input_dataset_config = config.get('input_dataset', {})
+    # Get the directory from labels file path
+    labels_file = input_dataset_config.get('labels_file')
+    if not labels_file:
+        print("ERROR: 'input_dataset.labels_file' not found in config file")
+        sys.exit(1)
+    INPUT_DATA_DIR = Path(labels_file).parent
+    if not INPUT_DATA_DIR.is_absolute():
+        INPUT_DATA_DIR = Path.cwd() / INPUT_DATA_DIR
+else:
+    INPUT_DATA_DIR = Path(os.getenv('INPUT_DATA_DIR', ''))
+    if not INPUT_DATA_DIR or not INPUT_DATA_DIR.name:
+        print("ERROR: Neither --config provided nor INPUT_DATA_DIR environment variable set")
+        sys.exit(1)
 
 print(f"Output Directory: {OUTPUT_DIR}")
 print(f"Preprocessing Directory: {PREPROCESSING_DIR}\n")
@@ -205,10 +255,27 @@ print(f"  ✓ Saved: {ranges_csv.name}\n")
 
 print("[STAGE 3] Computing 3x3 Modality Correlation Matrix...\n")
 
-# Standardize embeddings
-uni_scaled = StandardScaler().fit_transform(uni_embeddings)
-scvi_scaled = StandardScaler().fit_transform(scvi_embeddings)
-rctd_scaled = StandardScaler().fit_transform(rctd_embeddings)
+# Create mask for valid (non-NaN) samples across all modalities
+valid_mask = ~(np.isnan(uni_embeddings).any(axis=1) | 
+               np.isnan(scvi_embeddings).any(axis=1) | 
+               np.isnan(rctd_embeddings).any(axis=1))
+n_valid = valid_mask.sum()
+n_total = len(valid_mask)
+n_invalid = n_total - n_valid
+
+print(f"  Valid samples (all modalities have no NaN): {n_valid:,} / {n_total:,} ({100*n_valid/n_total:.2f}%)")
+print(f"  Samples with any NaN: {n_invalid:,}")
+print()
+
+# Use only valid samples for correlation computation
+uni_emb_clean = uni_embeddings[valid_mask]
+scvi_emb_clean = scvi_embeddings[valid_mask]
+rctd_emb_clean = rctd_embeddings[valid_mask]
+
+# Standardize clean embeddings
+uni_scaled = StandardScaler().fit_transform(uni_emb_clean)
+scvi_scaled = StandardScaler().fit_transform(scvi_emb_clean)
+rctd_scaled = StandardScaler().fit_transform(rctd_emb_clean)
 
 # Compute correlation matrix using mean-standardized embeddings
 # Correlation between two modalities = correlation of their mean values across samples
@@ -221,7 +288,7 @@ embeddings_dict = {
 corr_matrix = np.zeros((3, 3))
 mod_names = ['UNI', 'scVI', 'RCTD']
 
-print("  Modality Correlations:")
+print("  Modality Correlations (computed on valid samples only):")
 for i, mod1 in enumerate(mod_names):
     for j, mod2 in enumerate(mod_names):
         if i == j:
@@ -275,20 +342,24 @@ print("[STAGE 4] Computing Modality Separability Metrics...\n")
 
 separability_data = []
 
-for mod_name, embeddings in [('UNI', uni_embeddings), ('scVI', scvi_embeddings), 
-                              ('RCTD', rctd_embeddings), ('Fused (All 303D)', fused_embeddings)]:
+# Use clean data (without NaN) for all modality separability metrics
+labels_clean = labels[valid_mask]
+fused_emb_clean = fused_embeddings[valid_mask]
+
+for mod_name, embeddings in [('UNI', uni_emb_clean), ('scVI', scvi_emb_clean), 
+                              ('RCTD', rctd_emb_clean), ('Fused (All 1177D)', fused_emb_clean)]:
     
     emb_scaled = StandardScaler().fit_transform(embeddings)
     
     # Silhouette Score (cell type separability based on labels)
     try:
-        silhouette = silhouette_score(emb_scaled, labels, sample_size=min(5000, len(labels)))
+        silhouette = silhouette_score(emb_scaled, labels_clean, sample_size=min(5000, len(labels_clean)))
     except:
         silhouette = np.nan
     
     # Davies-Bouldin Index (lower is better)
     try:
-        davies_bouldin = davies_bouldin_score(emb_scaled, labels)
+        davies_bouldin = davies_bouldin_score(emb_scaled, labels_clean)
     except:
         davies_bouldin = np.nan
     
@@ -340,12 +411,21 @@ try:
     # Get unique patients
     patients = metadata_df['patient_id'].unique()
     
-    # Compute PC1 from fused embeddings
+    # Compute PC1 from clean fused embeddings (without NaN)
     pca_fused = PCA(n_components=1)
-    pc1_values = pca_fused.fit_transform(fused_embeddings).flatten()
+    pc1_values_clean = pca_fused.fit_transform(fused_emb_clean).flatten()
     
-    print(f"  PC1 Range: [{np.min(pc1_values):.4f}, {np.max(pc1_values):.4f}]")
-    print(f"  PC1 Explained Variance: {pca_fused.explained_variance_ratio_[0]:.4f}\n")
+    # Map back to original indices: create full-length PC1 array (fill non-valid with median)
+    pc1_values = np.full(len(valid_mask), np.nan)
+    pc1_values[valid_mask] = pc1_values_clean
+    
+    # For missing values, use median of valid samples
+    median_pc1 = np.nanmedian(pc1_values)
+    pc1_values[np.isnan(pc1_values)] = median_pc1
+    
+    print(f"  PC1 Range (valid samples): [{np.nanmin(pc1_values_clean):.4f}, {np.nanmax(pc1_values_clean):.4f}]")
+    print(f"  PC1 Explained Variance: {pca_fused.explained_variance_ratio_[0]:.4f}")
+    print(f"  Missing samples filled with median: {(n_invalid)}\n")
     
     for patient in sorted(patients):
         # Get indices for this patient from metadata
@@ -453,13 +533,13 @@ validation_report = {
         f"{separability_df[separability_df['Modality'] == 'UNI']['Silhouette_Score'].values[0]:.4f}",
         f"{separability_df[separability_df['Modality'] == 'scVI']['Silhouette_Score'].values[0]:.4f}",
         f"{separability_df[separability_df['Modality'] == 'RCTD']['Silhouette_Score'].values[0]:.4f}",
-        f"{separability_df[separability_df['Modality'] == 'Fused (All 303D)']['Silhouette_Score'].values[0]:.4f}",
+        f"{separability_df[separability_df['Modality'] == 'Fused (All 1177D)']['Silhouette_Score'].values[0]:.4f}",
         'READY' if all(~pd.isna(alignment_df['Status'])) else 'CHECK'
     ]
 }
 
 validation_df = pd.DataFrame(validation_report)
-validation_csv = METRICS_DIR / "validation_qc_report.csv"
+validation_csv = PREPROCESSING_DIR / "validation_qc_report.csv"
 validation_df.to_csv(validation_csv, index=False)
 print(f"✓ Saved comprehensive validation report: {validation_csv.name}\n")
 

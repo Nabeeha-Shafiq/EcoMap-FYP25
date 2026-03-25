@@ -28,7 +28,10 @@ SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
 cd "$SCRIPT_DIR"
 
 # Activate virtual environment
-source ../.venv/bin/activate
+source .venv/bin/activate
+
+# Use the venv's python interpreter explicitly (relative path since we're already in SCRIPT_DIR)
+PYTHON_EXEC="./.venv/bin/python"
 
 # Colors for output
 RED='\033[0;31m'
@@ -49,7 +52,7 @@ echo ""
 # Check arguments
 if [ $# -lt 1 ]; then
     echo -e "${RED}Error: Config file required${NC}"
-    echo "Usage: $0 config/modular_flexible.yaml"
+    echo "Usage: $0 config/modular_GEO.yaml"
     exit 1
 fi
 
@@ -64,13 +67,25 @@ fi
 echo -e "Configuration: ${BLUE}$CONFIG_FILE${NC}"
 echo ""
 
-# Extract output directory from config
-OUTPUT_DIR=$(python -c "
+# Extract output directory and input dataset path from config
+OUTPUT_DIR=$($PYTHON_EXEC -c "
 import yaml
 config_file = '$CONFIG_FILE'
 with open(config_file, 'r') as f:
     config = yaml.safe_load(f)
-print(config.get('output', {}).get('output_dir', './results'))
+output_dir = config.get('output', {}).get('output_dir', './results')
+print(output_dir)
+" 2>/dev/null)
+
+INPUT_DATASET_DIR=$($PYTHON_EXEC -c "
+import yaml
+import os
+config_file = '$CONFIG_FILE'
+with open(config_file, 'r') as f:
+    config = yaml.safe_load(f)
+input_dataset_dir = config.get('input_dataset', {}).get('labels_file', './data/input_dataset/barcode_labels.csv')
+input_dir = os.path.dirname(input_dataset_dir)
+print(input_dir)
 " 2>/dev/null)
 
 # Fallback if extraction fails
@@ -78,22 +93,48 @@ if [ -z "$OUTPUT_DIR" ] || [ "$OUTPUT_DIR" == "None" ]; then
     OUTPUT_DIR="./results"
 fi
 
+if [ -z "$INPUT_DATASET_DIR" ] || [ "$INPUT_DATASET_DIR" == "None" ]; then
+    INPUT_DATASET_DIR="./data/input_dataset"
+fi
+
 echo -e "Output directory: ${BLUE}$OUTPUT_DIR${NC}"
 echo -e "All results will be saved to: ${GREEN}$OUTPUT_DIR${NC}"
 echo ""
 
-# Create required directories
-mkdir -p data/arrays
-mkdir -p data/preprocessed_arrays
-mkdir -p "$OUTPUT_DIR"
+# Setup logging to output directory
+LOG_FILE="$OUTPUT_DIR/pipeline_execution.log"
+{
+    echo "================================================================================"
+    echo "Pipeline Execution Log"
+    echo "================================================================================"
+    echo "Started: $(date)"
+    echo "Configuration: $CONFIG_FILE"
+    echo "Output Directory: $OUTPUT_DIR"
+    echo "================================================================================"
+    echo ""
+} > "$LOG_FILE"
+
+echo -e "Log file: ${BLUE}$LOG_FILE${NC}"
+echo ""
+
+# Create working directory for intermediate data (inside output dir)
+WORKING_DIR="$OUTPUT_DIR/.working"
+mkdir -p "$WORKING_DIR/arrays"
+mkdir -p "$WORKING_DIR/preprocessed_arrays"
 
 # Create subdirectories with organized metrics and visualizations structure
+mkdir -p "$OUTPUT_DIR"
 mkdir -p "$OUTPUT_DIR/preprocessing/metrics"
 mkdir -p "$OUTPUT_DIR/preprocessing/visualizations"
 mkdir -p "$OUTPUT_DIR/training/metrics"
 mkdir -p "$OUTPUT_DIR/training/visualizations"
 mkdir -p "$OUTPUT_DIR/post-training/metrics"
 mkdir -p "$OUTPUT_DIR/post-training/visualizations"
+
+# Export paths for all scripts to use
+export CONFIG_FILE="$CONFIG_FILE"
+export OUTPUT_DIR="$OUTPUT_DIR"
+export WORKING_DIR="$WORKING_DIR"
 
 ################################################################################
 # STAGE 1: Load Input CSV Files
@@ -104,11 +145,11 @@ echo -e "${YELLOW}[STAGE 1/6] Loading and Validating Input CSV Files${NC}"
 echo "================================================================================"
 echo ""
 
-python pipeline/load_input_embeddings.py \
-    --input-dir data/input_dataset \
-    --output-dir data/arrays || true
+$PYTHON_EXEC pipeline/load_input_embeddings.py \
+    --config "$CONFIG_FILE" \
+    --output-dir "$WORKING_DIR/arrays" || true
 
-if [ ! -f "data/arrays/barcodes.npy" ]; then
+if [ ! -f "$WORKING_DIR/arrays/barcodes.npy" ]; then
     echo -e "${RED}Error in Stage 1: CSV Loading failed - no output files created${NC}"
     exit 1
 fi
@@ -129,20 +170,12 @@ echo -e "${YELLOW}[STAGE 2/6] Generating Initial Validation & QC Reports${NC}"
 echo "================================================================================"
 echo ""
 
-# Ensure directories exist with all subfolders
-mkdir -p "$OUTPUT_DIR/preprocessing/correlation_matrices"
-mkdir -p "$OUTPUT_DIR/preprocessing/qc_checks"
-mkdir -p "$OUTPUT_DIR/preprocessing/spatial_heatmaps"
-mkdir -p "$OUTPUT_DIR/training"
-mkdir -p "$OUTPUT_DIR/visualizations/pretrain"
-mkdir -p "$OUTPUT_DIR/visualizations/training"
-mkdir -p "$OUTPUT_DIR/visualizations/spatial"
-
 # Call the standalone validation script
-export OUTPUT_DIR="$OUTPUT_DIR"  # Export so Python can access it
-python pipeline/validate_initial_embeddings.py
+$PYTHON_EXEC pipeline/validate_initial_embeddings.py \
+    --config "$CONFIG_FILE" \
+    --input-arrays-dir "$WORKING_DIR/arrays"
 
-if [ ! -f "$OUTPUT_DIR/preprocessing/validation_qc_report.csv" ]; then
+if [ ! -f "$OUTPUT_DIR/preprocessing/metrics/validation_qc_report.csv" ]; then
     echo -e "${RED}Error in Stage 2: Validation script failed${NC}"
     exit 1
 fi
@@ -166,18 +199,18 @@ echo -e "${YELLOW}[STAGE 3/6] Applying PCA Preprocessing${NC}"
 echo "================================================================================"
 echo ""
 
-python pipeline/preprocess_embeddings.py \
+$PYTHON_EXEC pipeline/preprocess_embeddings.py \
     --config "$CONFIG_FILE" \
-    --input-dir data/arrays \
-    --output-dir data/preprocessed_arrays
+    --input-arrays-dir "$WORKING_DIR/arrays" \
+    --output-dir "$WORKING_DIR/preprocessed_arrays"
 
-if [ ! -f "data/preprocessed_arrays/fused_embeddings_pca.npy" ]; then
+if [ ! -f "$WORKING_DIR/preprocessed_arrays/fused_embeddings_pca.npy" ]; then
     echo -e "${RED}Error in Stage 3: Preprocessing failed${NC}"
     exit 1
 fi
 
 # Copy preprocessing report to output directory
-cp data/preprocessed_arrays/preprocessing_report.yaml "$OUTPUT_DIR/preprocessing/"
+cp "$WORKING_DIR/preprocessed_arrays/preprocessing_report.yaml" "$OUTPUT_DIR/preprocessing/" 2>/dev/null || true
 
 echo -e "${GREEN}✓ Stage 3 Complete: PCA reduction applied${NC}"
 echo ""
@@ -191,8 +224,9 @@ echo -e "${YELLOW}[STAGE 3.5/6] Validation & Visualization (Correlation Matrices
 echo "================================================================================"
 echo ""
 
-export OUTPUT_DIR="$OUTPUT_DIR"  # Export for Python script
-python pipeline/validate_and_visualize_preprocessing.py
+$PYTHON_EXEC pipeline/validate_and_visualize_preprocessing.py \
+    --config "$CONFIG_FILE" \
+    --preprocessed-arrays-dir "$WORKING_DIR/preprocessed_arrays"
 
 if [ ! -f "$OUTPUT_DIR/preprocessing/validation_qc_report.csv" ]; then
     echo -e "${RED}Error in Stage 3.5: Validation failed${NC}"
@@ -215,9 +249,9 @@ echo -e "${YELLOW}[STAGE 4/7] Training MLP Classifier (5-Fold CV)${NC}"
 echo "================================================================================"
 echo ""
 
-python pipeline/train_mlp.py \
-    --embeddings data/preprocessed_arrays/fused_embeddings_pca.npy \
-    --labels data/input_dataset/barcode_labels.csv \
+$PYTHON_EXEC pipeline/train_mlp.py \
+    --config "$CONFIG_FILE" \
+    --embeddings "$WORKING_DIR/preprocessed_arrays/fused_embeddings_pca.npy" \
     --output "$OUTPUT_DIR/training"
 
 if [ ! -f "$OUTPUT_DIR/training/metrics/training_results.json" ]; then
@@ -252,9 +286,10 @@ echo -e "${YELLOW}[STAGE 6/7] Generating Spatial Heatmaps & 3D Landscapes${NC}"
 echo "================================================================================"
 echo ""
 
-python pipeline/create_spatial_visualizations.py \
+$PYTHON_EXEC pipeline/create_spatial_visualizations.py \
+    --config "$CONFIG_FILE" \
     --predictions "$OUTPUT_DIR/training/metrics/predictions_all_spots.csv" \
-    --metadata data/input_dataset/barcode_metadata.csv \
+    --embeddings "$WORKING_DIR/preprocessed_arrays/fused_embeddings_pca.npy" \
     --output "$OUTPUT_DIR/post-training/visualizations"
 
 echo -e "${GREEN}✓ Stage 6 Complete: Spatial visualizations generated${NC}"
@@ -323,6 +358,13 @@ except Exception as e:
     print(f"  Could not load results: {e}")
 PYTHON_RESULTS
 fi
+
+echo ""
+echo "================================================================================"
+echo "Pipeline completed successfully!"
+echo "Completed: $(date)" | tee -a "$LOG_FILE"
+echo "Log file saved to: $LOG_FILE"
+echo "================================================================================"
 
 echo ""
 echo "================================================================================"

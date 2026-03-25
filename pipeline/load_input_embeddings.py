@@ -34,6 +34,7 @@ from pathlib import Path
 import argparse
 import sys
 from datetime import datetime
+import yaml
 
 print("\n" + "="*100)
 print("INPUT DATA LOADER: CSV to NumPy Conversion")
@@ -60,9 +61,12 @@ def load_embeddings_csv(csv_path, modality_name):
     
     return barcodes, embeddings, n_dims
 
-def validate_barcode_alignment(uni_barcodes, scvi_barcodes, rctd_barcodes):
+def validate_barcode_alignment(uni_barcodes, scvi_barcodes, rctd_barcodes, uni_emb, scvi_emb, rctd_emb):
     """
     Validate that all modalities have the same barcodes in the same order.
+    Filter to common barcodes if mismatches detected.
+    Returns (uni_barcodes, scvi_barcodes, rctd_barcodes, uni_emb, scvi_emb, rctd_emb)
+    ALL aligned to common barcodes.
     """
     print("\n[STAGE 2] Validating Barcode Alignment")
     print("─" * 80)
@@ -75,20 +79,44 @@ def validate_barcode_alignment(uni_barcodes, scvi_barcodes, rctd_barcodes):
     print(f"  All barcodes identical: {'YES ✓' if all_match else 'NO ✗'}")
     
     if not all_match:
-        print("  ⚠ WARNING: Barcodes do not match! Attempting intersection...")
+        print("  ⚠ WARNING: Barcodes do not match! Filtering to common barcodes...")
         uni_set = set(uni_barcodes)
         scvi_set = set(scvi_barcodes)
         rctd_set = set(rctd_barcodes)
         
-        common = uni_set & scvi_set & rctd_set
+        common = sorted(uni_set & scvi_set & rctd_set)
         print(f"    Common barcodes: {len(common):,}")
         
         if len(common) < len(uni_set) * 0.95:
             print(f"    ✗ ERROR: Less than 95% overlap detected!")
-            return None, None, None
+            return None, None, None, None, None, None
+        
+        # Filter embeddings to common barcodes
+        common_set = set(common)
+        
+        # Find indices in each original array
+        uni_idx = [i for i, bc in enumerate(uni_barcodes) if bc in common_set]
+        scvi_idx = [i for i, bc in enumerate(scvi_barcodes) if bc in common_set]
+        rctd_idx = [i for i, bc in enumerate(rctd_barcodes) if bc in common_set]
+        
+        # Filter embeddings and barcodes
+        uni_barcodes = uni_barcodes[uni_idx]
+        scvi_barcodes = scvi_barcodes[scvi_idx]
+        rctd_barcodes = rctd_barcodes[rctd_idx]
+        
+        uni_emb = uni_emb[uni_idx]
+        scvi_emb = scvi_emb[scvi_idx]
+        rctd_emb = rctd_emb[rctd_idx]
+        
+        # Verify alignment after filtering
+        if not (np.array_equal(uni_barcodes, scvi_barcodes) and np.array_equal(scvi_barcodes, rctd_barcodes)):
+            print("    ✗ ERROR: Barcodes still misaligned after filtering!")
+            return None, None, None, None, None, None
+        
+        print(f"    ✓ Aligned to {len(uni_barcodes):,} common barcodes")
     
     print()
-    return uni_barcodes, scvi_barcodes, rctd_barcodes
+    return uni_barcodes, scvi_barcodes, rctd_barcodes, uni_emb, scvi_emb, rctd_emb
 
 def check_data_quality(uni_emb, scvi_emb, rctd_emb, barcodes):
     """
@@ -159,48 +187,97 @@ def main():
     )
     
     parser.add_argument(
-        "--input-dir",
+        "--config",
         type=str,
-        default="data/input_dataset",
-        help="Path to input_dataset folder (default: data/input_dataset)"
+        required=False,
+        help="Path to config.yaml file (required - contains all input file paths)"
     )
     
     parser.add_argument(
         "--output-dir",
         type=str,
-        default="data/numpy_arrays",
-        help="Output directory for NumPy files (default: data/numpy_arrays)"
+        required=True,
+        help="Output directory for NumPy files"
+    )
+    
+    # Legacy arguments (kept for backward compatibility, overridden by config)
+    parser.add_argument(
+        "--input-dir",
+        type=str,
+        default=None,
+        help="[DEPRECATED] Path to input_dataset folder - use --config instead"
     )
     
     parser.add_argument(
         "--cell-file",
         type=str,
-        default="cell-composition-embeddings.csv",
-        help="Cell composition CSV filename"
+        default=None,
+        help="[DEPRECATED] Cell composition CSV filename - use --config instead"
     )
     
     parser.add_argument(
         "--gene-file",
         type=str,
-        default="gene_embedding_combined.csv",
-        help="Gene expression CSV filename"
+        default=None,
+        help="[DEPRECATED] Gene expression CSV filename - use --config instead"
     )
     
     parser.add_argument(
         "--image-file",
         type=str,
-        default="image_encoder_embeddings.csv",
-        help="Image encoder CSV filename"
+        default=None,
+        help="[DEPRECATED] Image encoder CSV filename - use --config instead"
     )
     
     args = parser.parse_args()
     
-    input_dir = Path(args.input_dir)
+    # If config is provided, read all paths from it
+    if args.config:
+        import yaml
+        with open(args.config, 'r') as f:
+            config = yaml.safe_load(f)
+        
+        input_dataset_config = config.get('input_dataset', {})
+        
+        # Extract paths from config - resolve relative to CWD (where pipeline is run)
+        # Config paths are relative to the directory where run_pipeline.sh is executed
+        image_file = Path(input_dataset_config.get('image_encoder_embeddings', ''))
+        if not image_file.is_absolute():
+            image_file = Path.cwd() / image_file
+            
+        gene_file = Path(input_dataset_config.get('gene_embeddings', ''))
+        if not gene_file.is_absolute():
+            gene_file = Path.cwd() / gene_file
+            
+        cell_file = Path(input_dataset_config.get('cell_composition_embeddings', ''))
+        if not cell_file.is_absolute():
+            cell_file = Path.cwd() / cell_file
+        
+        # Get directory from first file
+        input_dir = image_file.parent
+    else:
+        # Fallback to command-line arguments (for backward compatibility)
+        if not args.input_dir:
+            print("  ✗ ERROR: Either --config or --input-dir must be provided")
+            sys.exit(1)
+        
+        input_dir = Path(args.input_dir)
+        
+        image_file = input_dir / (args.image_file or "image_encoder_embeddings.csv")
+        gene_file = input_dir / (args.gene_file or "gene_embedding_combined.csv")
+        cell_file = input_dir / (args.cell_file or "cell-composition-embeddings.csv")
+    
     output_dir = Path(args.output_dir)
     
-    # Verify input directory
-    if not input_dir.exists():
-        print(f"  ✗ ERROR: Input directory not found: {input_dir}")
+    # Verify input files exist
+    if not image_file.exists():
+        print(f"  ✗ ERROR: File not found: {image_file}")
+        sys.exit(1)
+    if not gene_file.exists():
+        print(f"  ✗ ERROR: File not found: {gene_file}")
+        sys.exit(1)
+    if not cell_file.exists():
+        print(f"  ✗ ERROR: File not found: {cell_file}")
         sys.exit(1)
     
     # Create output directory
@@ -210,30 +287,21 @@ def main():
     print("[STAGE 1] Loading CSV Files")
     print("─" * 80)
     
-    uni_file = input_dir / args.image_file
-    scvi_file = input_dir / args.gene_file
-    rctd_file = input_dir / args.cell_file
-    
-    for file_path in [uni_file, scvi_file, rctd_file]:
-        if not file_path.exists():
-            print(f"  ✗ ERROR: File not found: {file_path}")
-            sys.exit(1)
-    
     # Load embeddings
     print(f"\n  From directory: {input_dir}")
     print()
     
-    uni_barcodes, uni_emb, uni_dims = load_embeddings_csv(uni_file, "UNI (Image)")
-    scvi_barcodes, scvi_emb, scvi_dims = load_embeddings_csv(scvi_file, "scVI (Gene)")
-    rctd_barcodes, rctd_emb, rctd_dims = load_embeddings_csv(rctd_file, "RCTD (Cell)")
+    uni_barcodes, uni_emb, uni_dims = load_embeddings_csv(image_file, "UNI (Image)")
+    scvi_barcodes, scvi_emb, scvi_dims = load_embeddings_csv(gene_file, "scVI (Gene)")
+    rctd_barcodes, rctd_emb, rctd_dims = load_embeddings_csv(cell_file, "RCTD (Cell)")
     
-    # Validate alignment
-    barcodes = validate_barcode_alignment(uni_barcodes, scvi_barcodes, rctd_barcodes)
-    if barcodes[0] is None:
-        print("  ✗ ERROR: Barcode validation failed!")
+    # Validate alignment AND filter to common barcodes
+    result = validate_barcode_alignment(uni_barcodes, scvi_barcodes, rctd_barcodes, uni_emb, scvi_emb, rctd_emb)
+    if result[0] is None:
+        print("  ✗ ERROR: Barcode validation/filtering failed!")
         sys.exit(1)
     
-    uni_barcodes = barcodes[0]
+    uni_barcodes, scvi_barcodes, rctd_barcodes, uni_emb, scvi_emb, rctd_emb = result
     
     # Data quality checks
     quality_pass = check_data_quality(uni_emb, scvi_emb, rctd_emb, uni_barcodes)

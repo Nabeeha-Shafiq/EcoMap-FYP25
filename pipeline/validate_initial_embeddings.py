@@ -9,7 +9,7 @@ It generates:
   - Modality separability metrics
   - Comprehensive validation report
 
-Output goes to OUTPUT_DIR/preprocessing/ (from environment variable set by orchestrator)
+Paths are read from config.yaml (or environment variables) - no hardcoded paths.
 """
 
 import numpy as np
@@ -17,25 +17,58 @@ import pandas as pd
 import json
 from pathlib import Path
 import os
+import sys
+import argparse
+import yaml
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import seaborn as sns
 
-output_dir = os.getenv('OUTPUT_DIR', './results')
-Path(output_dir).mkdir(parents=True, exist_ok=True)
+# Parse arguments
+parser = argparse.ArgumentParser(description="Validate initial embeddings and generate QC reports")
+parser.add_argument('--config', type=str, help='Path to config.yaml file')
+parser.add_argument('--input-arrays-dir', type=str, help='Path to directory containing .npy arrays from Stage 1')
+args = parser.parse_args()
+
+# Get paths from environment or arguments
+if args.config:
+    with open(args.config, 'r') as f:
+        config = yaml.safe_load(f)
+    output_dir = config.get('output', {}).get('output_dir')
+    if not output_dir:
+        print("ERROR: 'output.output_dir' not found in config file")
+        sys.exit(1)
+else:
+    output_dir = os.getenv('OUTPUT_DIR')
+    if not output_dir:
+        print("ERROR: Neither --config provided nor OUTPUT_DIR environment variable set")
+        sys.exit(1)
+
+if args.input_arrays_dir:
+    arrays_dir = Path(args.input_arrays_dir)
+else:
+    arrays_dir = Path(os.getenv('WORKING_DIR', './') + '/arrays')
+
+output_dir = Path(output_dir)
+output_dir.mkdir(parents=True, exist_ok=True)
 
 print("\n" + "="*100)
 print("STAGE 2: COMPREHENSIVE PRE-PROCESSING VALIDATION & QC REPORT GENERATION")
 print("="*100 + "\n")
 
 # Load arrays from Stage 1
-print("[LOADING] Embeddings from data/arrays/...\n")
+print(f"[LOADING] Embeddings from {arrays_dir}/...\n")
 
-uni_emb = np.load('data/arrays/uni_embeddings.npy')
-scvi_emb = np.load('data/arrays/scvi_embeddings.npy')
-rctd_emb = np.load('data/arrays/rctd_embeddings.npy')
-barcodes = np.load('data/arrays/barcodes.npy', allow_pickle=True)
+try:
+    uni_emb = np.load(arrays_dir / 'uni_embeddings.npy')
+    scvi_emb = np.load(arrays_dir / 'scvi_embeddings.npy')
+    rctd_emb = np.load(arrays_dir / 'rctd_embeddings.npy')
+    barcodes = np.load(arrays_dir / 'barcodes.npy', allow_pickle=True)
+except FileNotFoundError as e:
+    print(f"  ✗ ERROR: Could not load array files from {arrays_dir}")
+    print(f"  Missing file: {e}")
+    sys.exit(1)
 
 print(f"  ✓ UNI embeddings: {uni_emb.shape}")
 print(f"  ✓ scVI embeddings: {scvi_emb.shape}")
