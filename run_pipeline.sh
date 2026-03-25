@@ -101,7 +101,23 @@ echo -e "Output directory: ${BLUE}$OUTPUT_DIR${NC}"
 echo -e "All results will be saved to: ${GREEN}$OUTPUT_DIR${NC}"
 echo ""
 
-# Setup logging to output directory
+# Create output directory if it doesn't exist (MUST DO THIS BEFORE LOG FILE SETUP)
+mkdir -p "$OUTPUT_DIR"
+
+# Create working directory for intermediate data (inside output dir)
+WORKING_DIR="$OUTPUT_DIR/.working"
+mkdir -p "$WORKING_DIR/arrays"
+mkdir -p "$WORKING_DIR/preprocessed_arrays"
+
+# Create subdirectories with organized metrics and visualizations structure
+mkdir -p "$OUTPUT_DIR/preprocessing/metrics"
+mkdir -p "$OUTPUT_DIR/preprocessing/visualizations"
+mkdir -p "$OUTPUT_DIR/training/metrics"
+mkdir -p "$OUTPUT_DIR/training/visualizations"
+mkdir -p "$OUTPUT_DIR/post-training/metrics"
+mkdir -p "$OUTPUT_DIR/post-training/visualizations"
+
+# Setup logging to output directory (now that it exists)
 LOG_FILE="$OUTPUT_DIR/pipeline_execution.log"
 {
     echo "================================================================================"
@@ -116,20 +132,6 @@ LOG_FILE="$OUTPUT_DIR/pipeline_execution.log"
 
 echo -e "Log file: ${BLUE}$LOG_FILE${NC}"
 echo ""
-
-# Create working directory for intermediate data (inside output dir)
-WORKING_DIR="$OUTPUT_DIR/.working"
-mkdir -p "$WORKING_DIR/arrays"
-mkdir -p "$WORKING_DIR/preprocessed_arrays"
-
-# Create subdirectories with organized metrics and visualizations structure
-mkdir -p "$OUTPUT_DIR"
-mkdir -p "$OUTPUT_DIR/preprocessing/metrics"
-mkdir -p "$OUTPUT_DIR/preprocessing/visualizations"
-mkdir -p "$OUTPUT_DIR/training/metrics"
-mkdir -p "$OUTPUT_DIR/training/visualizations"
-mkdir -p "$OUTPUT_DIR/post-training/metrics"
-mkdir -p "$OUTPUT_DIR/post-training/visualizations"
 
 # Export paths for all scripts to use
 export CONFIG_FILE="$CONFIG_FILE"
