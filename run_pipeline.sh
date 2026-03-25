@@ -142,171 +142,188 @@ export WORKING_DIR="$WORKING_DIR"
 # STAGE 1: Load Input CSV Files
 ################################################################################
 
-echo "================================================================================"
-echo -e "${YELLOW}[STAGE 1/6] Loading and Validating Input CSV Files${NC}"
-echo "================================================================================"
-echo ""
+{
+    echo "================================================================================"
+    echo -e "${YELLOW}[STAGE 1/6] Loading and Validating Input CSV Files${NC}"
+    echo "================================================================================"
+    echo ""
 
-$PYTHON_EXEC pipeline/load_input_embeddings.py \
-    --config "$CONFIG_FILE" \
-    --output-dir "$WORKING_DIR/arrays" || true
+    $PYTHON_EXEC pipeline/load_input_embeddings.py \
+        --config "$CONFIG_FILE" \
+        --output-dir "$WORKING_DIR/arrays" || true
+} 2>&1 | tee -a "$LOG_FILE"
 
-if [ ! -f "$WORKING_DIR/arrays/barcodes.npy" ]; then
-    echo -e "${RED}Error in Stage 1: CSV Loading failed - no output files created${NC}"
-    exit 1
-fi
+{    
+    if [ ! -f "$WORKING_DIR/arrays/barcodes.npy" ]; then
+        echo -e "${RED}Error in Stage 1: CSV Loading failed - no output files created${NC}"
+        exit 1
+    fi
 
-echo -e "${GREEN}✓ Stage 1 Complete: CSV files loaded and validated${NC}"
-echo "  - UNI embeddings: (23342, 1024)"
-echo "  - scVI embeddings: (23342, 128)"
-echo "  - RCTD embeddings: (23342, 25)"
-echo "  - Barcodes: 23342 samples validated"
-echo ""
+    echo -e "${GREEN}✓ Stage 1 Complete: CSV files loaded and validated${NC}"
+    echo "  - UNI embeddings: (23342, 1024)"
+    echo "  - scVI embeddings: (23342, 128)"
+    echo "  - RCTD embeddings: (23342, 25)"
+    echo "  - Barcodes: 23342 samples validated"
+    echo ""
+} 2>&1 | tee -a "$LOG_FILE"
 
 ################################################################################
 # STAGE 2: Initial Validation & QC Report Generation
 ################################################################################
 
-echo "================================================================================"
-echo -e "${YELLOW}[STAGE 2/6] Generating Initial Validation & QC Reports${NC}"
-echo "================================================================================"
-echo ""
+{
+    echo "================================================================================"
+    echo -e "${YELLOW}[STAGE 2/6] Generating Initial Validation & QC Reports${NC}"
+    echo "================================================================================"
+    echo ""
 
-# Call the standalone validation script
-$PYTHON_EXEC pipeline/validate_initial_embeddings.py \
-    --config "$CONFIG_FILE" \
-    --input-arrays-dir "$WORKING_DIR/arrays"
+    # Call the standalone validation script
+    $PYTHON_EXEC pipeline/validate_initial_embeddings.py \
+        --config "$CONFIG_FILE" \
+        --input-arrays-dir "$WORKING_DIR/arrays"
 
-if [ ! -f "$OUTPUT_DIR/preprocessing/metrics/validation_qc_report.csv" ]; then
-    echo -e "${RED}Error in Stage 2: Validation script failed${NC}"
-    exit 1
-fi
+    if [ ! -f "$OUTPUT_DIR/preprocessing/metrics/validation_qc_report.csv" ]; then
+        echo -e "${RED}Error in Stage 2: Validation script failed${NC}"
+        exit 1
+    fi
 
-echo -e "${GREEN}✓ Stage 2 Complete: Initial QC and validation reports generated${NC}"
-echo "  Generated:"
-echo "    ✓ validation_qc_report.csv (summary statistics)"
-echo "    ✓ qc_checks/barcode_alignment.csv"
-echo "    ✓ qc_checks/value_ranges.csv"
-echo "    ✓ qc_checks/zero_and_nan_infinity_values.csv"
-echo "    ✓ correlation_matrices/modality_correlation_matrix_3x3.csv"
-echo "    ✓ correlation_matrices/modality_correlation_matrix_3x3_heatmap.png"
-echo "    ✓ correlation_matrices/modality_separability_matrix.csv"
+    echo -e "${GREEN}✓ Stage 2 Complete: Initial QC and validation reports generated${NC}"
+    echo "  Generated:"
+    echo "    ✓ validation_qc_report.csv (summary statistics)"
+    echo "    ✓ qc_checks/barcode_alignment.csv"
+    echo "    ✓ qc_checks/value_ranges.csv"
+    echo "    ✓ qc_checks/zero_and_nan_infinity_values.csv"
+    echo "    ✓ correlation_matrices/modality_correlation_matrix_3x3.csv"
+    echo "    ✓ correlation_matrices/modality_correlation_matrix_3x3_heatmap.png"
+    echo "    ✓ correlation_matrices/modality_separability_matrix.csv"
+} 2>&1 | tee -a "$LOG_FILE"
 
 ################################################################################
 # STAGE 3: Preprocessing (PCA Reduction)
 ################################################################################
 
-echo "================================================================================"
-echo -e "${YELLOW}[STAGE 3/6] Applying PCA Preprocessing${NC}"
-echo "================================================================================"
-echo ""
+{
+    echo "================================================================================"
+    echo -e "${YELLOW}[STAGE 3/6] Applying PCA Preprocessing${NC}"
+    echo "================================================================================"
+    echo ""
 
-$PYTHON_EXEC pipeline/preprocess_embeddings.py \
-    --config "$CONFIG_FILE" \
-    --input-arrays-dir "$WORKING_DIR/arrays" \
-    --output-dir "$WORKING_DIR/preprocessed_arrays"
+    $PYTHON_EXEC pipeline/preprocess_embeddings.py \
+        --config "$CONFIG_FILE" \
+        --input-arrays-dir "$WORKING_DIR/arrays" \
+        --output-dir "$WORKING_DIR/preprocessed_arrays"
 
-if [ ! -f "$WORKING_DIR/preprocessed_arrays/fused_embeddings_pca.npy" ]; then
-    echo -e "${RED}Error in Stage 3: Preprocessing failed${NC}"
-    exit 1
-fi
+    if [ ! -f "$WORKING_DIR/preprocessed_arrays/fused_embeddings_pca.npy" ]; then
+        echo -e "${RED}Error in Stage 3: Preprocessing failed${NC}"
+        exit 1
+    fi
 
-# Copy preprocessing report to output directory
-cp "$WORKING_DIR/preprocessed_arrays/preprocessing_report.yaml" "$OUTPUT_DIR/preprocessing/" 2>/dev/null || true
+    # Copy preprocessing report to output directory
+    cp "$WORKING_DIR/preprocessed_arrays/preprocessing_report.yaml" "$OUTPUT_DIR/preprocessing/" 2>/dev/null || true
 
-echo -e "${GREEN}✓ Stage 3 Complete: PCA reduction applied${NC}"
-echo ""
+    echo -e "${GREEN}✓ Stage 3 Complete: PCA reduction applied${NC}"
+    echo ""
+} 2>&1 | tee -a "$LOG_FILE"
 
 ################################################################################
 # STAGE 3.5: Pre-Training Validation & Visualization
 ################################################################################
 
-echo "================================================================================"
-echo -e "${YELLOW}[STAGE 3.5/6] Validation & Visualization (Correlation Matrices, QC Checks, Spatial Heatmaps)${NC}"
-echo "================================================================================"
-echo ""
+{
+    echo "================================================================================"
+    echo -e "${YELLOW}[STAGE 3.5/6] Validation & Visualization (Correlation Matrices, QC Checks, Spatial Heatmaps)${NC}"
+    echo "================================================================================"
+    echo ""
 
-$PYTHON_EXEC pipeline/validate_and_visualize_preprocessing.py \
-    --config "$CONFIG_FILE" \
-    --preprocessed-arrays-dir "$WORKING_DIR/preprocessed_arrays"
+    $PYTHON_EXEC pipeline/validate_and_visualize_preprocessing.py \
+        --config "$CONFIG_FILE" \
+        --preprocessed-arrays-dir "$WORKING_DIR/preprocessed_arrays"
 
-if [ ! -f "$OUTPUT_DIR/preprocessing/validation_qc_report.csv" ]; then
-    echo -e "${RED}Error in Stage 3.5: Validation failed${NC}"
-    exit 1
-fi
+    if [ ! -f "$OUTPUT_DIR/preprocessing/validation_qc_report.csv" ]; then
+        echo -e "${RED}Error in Stage 3.5: Validation failed${NC}"
+        exit 1
+    fi
 
-echo -e "${GREEN}✓ Stage 3.5 Complete: Validation & visualization generated${NC}"
-echo "  - Correlation matrices (3x3 with heatmap)"
-echo "  - QC checks (zero/NaN/infinity values, barcode alignment, value ranges)"
-echo "  - Modality separability metrics (Silhouette, Davies-Bouldin)"
-echo "  - Spatial heatmaps per patient (PC1 on X,Y coordinates)"
-echo ""
+    echo -e "${GREEN}✓ Stage 3.5 Complete: Validation & visualization generated${NC}"
+    echo "  - Correlation matrices (3x3 with heatmap)"
+    echo "  - QC checks (zero/NaN/infinity values, barcode alignment, value ranges)"
+    echo "  - Modality separability metrics (Silhouette, Davies-Bouldin)"
+    echo "  - Spatial heatmaps per patient (PC1 on X,Y coordinates)"
+    echo ""
+} 2>&1 | tee -a "$LOG_FILE"
 
 ################################################################################
 # STAGE 4: Training (5-Fold Cross-Validation)
 ################################################################################
 
-echo "================================================================================"
-echo -e "${YELLOW}[STAGE 4/7] Training MLP Classifier (5-Fold CV)${NC}"
-echo "================================================================================"
-echo ""
+{
+    echo "================================================================================"
+    echo -e "${YELLOW}[STAGE 4/7] Training MLP Classifier (5-Fold CV)${NC}"
+    echo "================================================================================"
+    echo ""
 
-$PYTHON_EXEC pipeline/train_mlp.py \
-    --config "$CONFIG_FILE" \
-    --embeddings "$WORKING_DIR/preprocessed_arrays/fused_embeddings_pca.npy" \
-    --output "$OUTPUT_DIR/training"
+    $PYTHON_EXEC pipeline/train_mlp.py \
+        --config "$CONFIG_FILE" \
+        --embeddings "$WORKING_DIR/preprocessed_arrays/fused_embeddings_pca.npy" \
+        --output "$OUTPUT_DIR/training"
 
-if [ ! -f "$OUTPUT_DIR/training/metrics/training_results.json" ]; then
-    echo -e "${RED}Error in Stage 4: Training failed${NC}"
-    exit 1
-fi
+    if [ ! -f "$OUTPUT_DIR/training/metrics/training_results.json" ]; then
+        echo -e "${RED}Error in Stage 4: Training failed${NC}"
+        exit 1
+    fi
 
-echo -e "${GREEN}✓ Stage 4 Complete: Model training finished${NC}"
-echo ""
+    echo -e "${GREEN}✓ Stage 4 Complete: Model training finished${NC}"
+    echo ""
+} 2>&1 | tee -a "$LOG_FILE"
 
 ################################################################################
 # STAGE 5: Post-Training Visualizations (Training Curves, Confusion Matrix)
 ################################################################################
 
-echo "================================================================================"
-echo -e "${YELLOW}[STAGE 5/7] Generating Post-Training Visualizations${NC}"
-echo "================================================================================"
-echo ""
+{
+    echo "================================================================================"
+    echo -e "${YELLOW}[STAGE 5/7] Generating Post-Training Visualizations${NC}"
+    echo "================================================================================"
+    echo ""
 
-# Training visualizations are already created by train_mlp.py in the output directory
+    # Training visualizations are already created by train_mlp.py in the output directory
 
-echo -e "${GREEN}✓ Stage 5 Complete: Training visualizations generated${NC}"
-echo "  Files saved to: $OUTPUT_DIR/training/"
-echo ""
+    echo -e "${GREEN}✓ Stage 5 Complete: Training visualizations generated${NC}"
+    echo "  Files saved to: $OUTPUT_DIR/training/"
+    echo ""
+} 2>&1 | tee -a "$LOG_FILE"
 
 ################################################################################
 # STAGE 6: Spatial Visualizations (Heatmaps, 3D Landscapes)
 ################################################################################
 
-echo "================================================================================"
-echo -e "${YELLOW}[STAGE 6/7] Generating Spatial Heatmaps & 3D Landscapes${NC}"
-echo "================================================================================"
-echo ""
+{
+    echo "================================================================================"
+    echo -e "${YELLOW}[STAGE 6/7] Generating Spatial Heatmaps & 3D Landscapes${NC}"
+    echo "================================================================================"
+    echo ""
 
-$PYTHON_EXEC pipeline/create_spatial_visualizations.py \
-    --config "$CONFIG_FILE" \
-    --predictions "$OUTPUT_DIR/training/metrics/predictions_all_spots.csv" \
-    --embeddings "$WORKING_DIR/preprocessed_arrays/fused_embeddings_pca.npy" \
-    --output "$OUTPUT_DIR/post-training/visualizations"
+    $PYTHON_EXEC pipeline/create_spatial_visualizations.py \
+        --config "$CONFIG_FILE" \
+        --predictions "$OUTPUT_DIR/training/metrics/predictions_all_spots.csv" \
+        --embeddings "$WORKING_DIR/preprocessed_arrays/fused_embeddings_pca.npy" \
+        --output "$OUTPUT_DIR/post-training/visualizations"
 
-echo -e "${GREEN}✓ Stage 6 Complete: Spatial visualizations generated${NC}"
-echo ""
+    echo -e "${GREEN}✓ Stage 6 Complete: Spatial visualizations generated${NC}"
+    echo ""
+} 2>&1 | tee -a "$LOG_FILE"
 
 ################################################################################
 # FINAL SUMMARY
 ################################################################################
 
-echo "================================================================================"
-echo -e "${GREEN}✓✓✓ COMPLETE PIPELINE EXECUTION SUCCESSFUL ✓✓✓${NC}"
-echo "================================================================================"
-echo ""
+{
+    echo "================================================================================"
+    echo -e "${GREEN}✓✓✓ COMPLETE PIPELINE EXECUTION SUCCESSFUL ✓✓✓${NC}"
+    echo "================================================================================"
+    echo ""
 
-echo -e "${BLUE}✓ Output Directory Structure:${NC}"
+    echo -e "${BLUE}✓ Output Directory Structure:${NC}"
 echo "  $OUTPUT_DIR/"
 echo "  ├── preprocessing/"
 echo "  │   ├── metrics/"
@@ -364,7 +381,7 @@ fi
 echo ""
 echo "================================================================================"
 echo "Pipeline completed successfully!"
-echo "Completed: $(date)" | tee -a "$LOG_FILE"
+echo "Completed: $(date)"
 echo "Log file saved to: $LOG_FILE"
 echo "================================================================================"
 
@@ -373,3 +390,4 @@ echo "==========================================================================
 echo -e "${GREEN}All results properly saved to: $OUTPUT_DIR${NC}"
 echo "================================================================================"
 echo ""
+} 2>&1 | tee -a "$LOG_FILE"
