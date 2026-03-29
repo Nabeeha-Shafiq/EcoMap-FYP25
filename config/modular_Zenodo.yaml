@@ -1,5 +1,5 @@
 # =============================================================================
-# MODULAR PIPELINE CONFIGURATION - FLEXIBLE PCA VARIANCE PERCENTAGES
+# MODULAR PIPELINE CONFIGURATION - ZENODO DATASET
 # =============================================================================
 #
 # PURPOSE: Single configuration file for entire end-to-end pipeline
@@ -26,7 +26,7 @@
 # [1] DATASET METADATA
 # =============================================================================
 dataset:
-  name: "GEO 5 Patient"                  # e.g., "GEO_23342", "ZENODO_16639"
+  name: "ZENODO Dataset"                  # e.g., "GEO_23342", "ZENODO_16639"
   n_samples: null                     # Auto-detect from input CSVs
   n_classes: 5
   class_names:
@@ -35,7 +35,7 @@ dataset:
     - "Invasive_Border"
     - "Metabolic"
     - "Normal_Adjacent"
-  description: "Your dataset description"
+  description: "ZENODO dataset with multi-modal embeddings"
 
 # =============================================================================
 # [2] INPUT DATA PATHS (Follow INPUT_FORMAT_SPECIFICATION.md)
@@ -47,17 +47,14 @@ dataset:
 
 input_dataset:
   # Labels and Metadata (REQUIRED)
-  labels_file: "./GEO data/input_dataset/barcode_labels.csv"
-  metadata_file: "./GEO data/input_dataset/barcode_metadata.csv"
-  label_mapping_file: "./GEO data/input_dataset/label_mapping.json"
+  labels_file: "./ZENODO data/barcode_labels.csv"
+  metadata_file: "./ZENODO data/barcode_metadata.csv"
+  label_mapping_file: "./ZENODO data/label_mapping.json"
   
   # Embedding CSVs (REQUIRED - all must exist)
-  #image_encoder_embeddings: "./GEO data/input_dataset/uni_embeddings_1024d_combined.csv"
-  #image_encoder_embeddings: "/media/hp/ADATA HV300/FYP/Ablation Studies/EcoMap-FYP25/GEO data/input_dataset/CONCH_EMBEDDINGS_COMBINED.CSV"
-  #image_encoder_embeddings: "/media/hp/ADATA HV300/FYP/Ablation Studies/EcoMap-FYP25/GEO data/input_dataset/HOPTIMUS_224__EMBEDDINGS_COMBINED.CSV"
-  image_encoder_embeddings: "/media/hp/ADATA HV300/FYP/Ablation Studies/EcoMap-FYP25/GEO data/input_dataset/HOPTIMUS_512_EMBEDDINGS_COMBINED.CSV"
-  gene_embeddings: "./GEO data/input_dataset/SCVI_EMBEDDING_COMBINED.CSV"
-  cell_composition_embeddings: "./GEO data/input_dataset/CELL_ENCODE_EMBEDDINGS.CSV"
+  image_encoder_embeddings: "./ZENODO data/UNI_EMBEDDINGS_COMBINED.CSV"
+  gene_embeddings: "./ZENODO data/SCVI_EMBEDDINGS_COMBINED.CSV"
+  cell_composition_embeddings: "./ZENODO data/RCTD_25D_COMBINED.CSV"
 
 # =============================================================================
 # [3] EMBEDDING MODALITIES WITH FLEXIBLE PCA CONFIGURATION
@@ -82,10 +79,7 @@ embeddings:
   # Output: depends on pca_variance
   image_encoder:
     name: "Image Encoder (UNI)"
-    file_path: "./GEO data/input_dataset/uni_embeddings_1024d_combined.csv"
-    #file_path: "/media/hp/ADATA HV300/FYP/Ablation Studies/EcoMap-FYP25/GEO data/input_dataset/CONCH_EMBEDDINGS_COMBINED.CSV"
-    #file_path: "/media/hp/ADATA HV300/FYP/Ablation Studies/EcoMap-FYP25/GEO data/input_dataset/HOPTIMUS_512_EMBEDDINGS_COMBINED.CSV"
-    #file_path: "/media/hp/ADATA HV300/FYP/Ablation Studies/EcoMap-FYP25/GEO data/input_dataset/HOPTIMUS_224__EMBEDDINGS_COMBINED.CSV"
+    file_path: "./ZENODO data/UNI_EMBEDDINGS_COMBINED.CSV"
     pca_variance: 0.6             # Keep 95% variance (typically ~150D)
     description: "Morphological features from image foundation model (e.g., UNI)"
   
@@ -94,7 +88,7 @@ embeddings:
   # No PCA needed: 128D is already reduced
   gene_encoder:
     name: "Gene Encoder (scVI)"
-    file_path: "./GEO data/input_dataset/SCVI_EMBEDDING_COMBINED.CSV"
+    file_path: "./ZENODO data/SCVI_EMBEDDINGS_COMBINED.CSV"
     pca_variance: null            # No reduction (keep 128D as-is)
     description: "Gene expression from scVI latent space"
   
@@ -103,7 +97,8 @@ embeddings:
   # No PCA needed: already sparse biological constraints
   cell_encoder:
     name: "Cell Composition (RCTD)"
-    file_path: "./GEO data/input_dataset/CELL_ENCODE_EMBEDDINGS.CSV"
+    file_path: "./ZENODO data/RCTD_25D_COMBINED.CSV"
+    #file_path: "./ZENODO data/RCTD_25D_COMBINED.CSV"
     pca_variance: null          # No reduction (keep 25D as-is)
     description: "Cell composition proportions from RCTD"
 
@@ -131,7 +126,7 @@ training:
   # Model Architecture
   # Input dim: auto-calculated from concatenated embeddings (no hard-coding)
   # Output dim: n_classes (5 in this case)
-  hidden_dims: [256, 128, 64]       # Hidden layers: 303D → 256 → 128 → 64 → 5
+  hidden_dims: [256, 128, 64]       # Hidden layers: auto_input → 256 → 128 → 64 → 5
   
   # Optimization
   learning_rate: 0.001
@@ -201,7 +196,7 @@ validation:
 # [8] OUTPUT CONFIGURATION
 # =============================================================================
 output:
-  output_dir: "./GEO Ablation Study/downsample_0.6_UNI_only"           # Root output directory
+  output_dir: "./ZENODO Ablation Study/0.6_only_uni_downsample"           # Root output directory
   overwrite_existing: true          # Overwrite if results_dir already exists
   
   # Sub-directories (created automatically)
@@ -321,4 +316,4 @@ advanced:
 #       --no_visualizations
 #
 # =============================================================================
-# bash run_pipeline.sh config/modular_GEO.yaml
+# bash run_pipeline.sh config/modular_Zenodo.yaml
