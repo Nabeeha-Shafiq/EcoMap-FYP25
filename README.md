@@ -2,7 +2,6 @@
 
 **Branch**: `student`  
 **Purpose**: End-to-end knowledge distillation pipeline for training compact student models using teacher knowledge  
-**Status**: ✅ Production Ready
 
 ---
 
