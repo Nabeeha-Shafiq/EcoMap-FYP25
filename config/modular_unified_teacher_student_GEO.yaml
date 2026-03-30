@@ -1,0 +1,235 @@
+# =============================================================================
+# UNIFIED TEACHER-STUDENT CONFIGURATION - GEO Dataset
+# =============================================================================
+#
+# PURPOSE:
+#   Single YAML file for complete teacher-student pipeline
+#   - Eliminates config duplication
+#   - Single source of truth for all paths
+#   - Both teacher and student derive from shared settings
+#
+# PHILOSOPHY:
+#   - One config = One pipeline
+#   - Teacher output paths → Student input paths (automatic)
+#   - PCA models are shared (teacher learns, student reuses)
+#   - All paths relative, all configurable
+#
+# =============================================================================
+
+# =============================================================================
+# DATASET METADATA (Global - shared by both)
+# =============================================================================
+dataset:
+  name: "GEO 5-Patient Unified"
+  n_samples: null  # Auto-detect
+  n_classes: 5
+  class_names:
+    - "Fibrotic"
+    - "Immunosuppressive"
+    - "Invasive_Border"
+    - "Metabolic"
+    - "Normal_Adjacent"
+  description: "Unified teacher-student pipeline: GEO dataset"
+
+# =============================================================================
+# PIPELINE EXECUTION CONTROL
+# =============================================================================
+pipeline:
+  run_teacher: true
+  run_student: true
+  run_visualizations: true
+  device: "cpu"
+  
+  # Fold configuration (controlled here for consistency)
+  n_folds: 5
+  folds_test_size: 0.2
+  random_seed: 42
+  n_jobs: 4
+
+# =============================================================================
+# [1] SHARED INPUT DATA PATHS
+# =============================================================================
+input_dataset:
+  # Labels and Metadata (SAME for both teacher and student)
+  labels_file: "./GEO data/input_dataset/barcode_labels.csv"
+  metadata_file: "./GEO data/input_dataset/barcode_metadata.csv"
+  label_mapping_file: "./GEO data/input_dataset/label_mapping.json"
+  
+  # Embedding CSVs (teacher uses all, student uses only UNI)
+  #image_encoder_embeddings: "./GEO data/input_dataset/uni_embeddings_1024d_combined.csv"
+  #image_encoder_embeddings: "./GEO data/input_dataset/CONCH_EMBEDDINGS_COMBINED.CSV"
+  image_encoder_embeddings: "./GEO data/input_dataset/HOPTIMUS_224__EMBEDDINGS_COMBINED.CSV"
+  gene_embeddings: "./GEO data/input_dataset/SCVI_EMBEDDING_COMBINED.CSV"
+  cell_composition_embeddings: "./GEO data/input_dataset/CELL_ENCODE_EMBEDDINGS.CSV"
+
+# =============================================================================
+# [2] PREPROCESSING & PCA CONFIGURATION (SHARED)
+# =============================================================================
+embeddings:
+  image_encoder:
+    name: "Image Encoder (UNI)"
+    #file_path: "./GEO data/input_dataset/uni_embeddings_1024d_combined.csv"
+    file_path: "./GEO data/input_dataset/HOPTIMUS_224__EMBEDDINGS_COMBINED.CSV"
+    pca_variance: 0.6          # 1024D → ~150D after PCA
+    description: "H&E morphology features"
+  
+  gene_encoder:
+    name: "Gene Encoder (scVI)"
+    file_path: "./GEO data/input_dataset/SCVI_EMBEDDING_COMBINED.CSV"
+    pca_variance: null         # No PCA, use 128D as-is
+    description: "Gene expression latent space"
+  
+  cell_encoder:
+    name: "Cell Composition (RCTD)"
+    file_path: "./GEO data/input_dataset/CELL_ENCODE_EMBEDDINGS.CSV"
+    pca_variance: null         # No PCA, use 25D as-is
+    description: "Cell type composition"
+
+preprocessing:
+  remove_nan_rows: false
+  remove_inf_rows: true
+  nan_tolerance_percent: 0.5
+  normalize_before_pca: false
+  normalization_method: "standard"
+  save_pca_models: true        # CRITICAL: Save for student reuse
+  save_preprocessed_arrays: true
+
+# =============================================================================
+# [3] TEACHER MODEL CONFIGURATION
+# =============================================================================
+teacher:
+  # Architecture (multimodal)
+  model_type: "multimodal"      # Uses all 3 modalities
+  hidden_dims: [256, 128, 64]
+  
+  # Training
+  learning_rate: 0.001
+  batch_size: 32
+  n_epochs: 200
+  weight_decay: 1e-5
+  dropout_rate: 0.3
+  use_batch_norm: true
+  use_class_weights: true
+  early_stopping_patience: 20
+  validation_split: 0.2
+  
+  # Output directory
+  output_dir: "./GEO Ablation Study/H-OPTIMUS_TEACHER_UNIFIED_GEO_0.6_PCA"
+
+# =============================================================================
+# [4] STUDENT MODEL CONFIGURATION  
+# =============================================================================
+student:
+  # Architecture (morphology-only, smaller)
+  model_type: "morphology_only" # Uses UNI only
+  hidden_dims: [128, 64, 32]    # Smaller than teacher
+  
+  # Training
+  learning_rate: 0.001
+  batch_size: 32
+  n_epochs: 150
+  weight_decay: 1e-5
+  dropout_rate: 0.3
+  use_batch_norm: true
+  use_class_weights: true
+  early_stopping_patience: 55
+  validation_split: 0.2
+  
+  # Knowledge Distillation
+  distillation:
+    # Teacher path DERIVED from teacher output_dir
+    # (automatically set: {teacher.output_dir}/teacher_model_FROZEN.pt)
+    
+    # Teacher preprocessed path DERIVED from teacher output_dir
+    # (automatically set: {teacher.output_dir}/.working/preprocessed_arrays)
+    
+    alpha: 0.7        # Hard target weight
+    beta: 0.2         # Soft target weight (teacher mimicking)
+    gamma: 0.1        # Feature matching weight
+    temperature: 4.0  # Softness of teacher logits
+  
+  # Output directory
+  output_dir: "./GEO Ablation Study/H-OPTIMUS_STUDENT_UNIFIED_GEO_0.6_PCA"
+
+# =============================================================================
+# [5] VISUALIZATION CONFIGURATION
+# =============================================================================
+visualization:
+  save_plots: true
+  plot_dpi: 150
+  include_spatial: true        # Will gracefully skip if coords missing
+  include_neighborhood: true
+  include_comparative: true
+  
+  # Visualization output (derived from student output_dir)
+  # Automatically uses: {student.output_dir}/post-training/visualizations/
+
+# =============================================================================
+# [6] LOGGING
+# =============================================================================
+logging:
+  level: "INFO"
+  save_log: true
+  teacher_log: "teacher_training.log"
+  student_log: "student_training.log"
+  unified_log: "unified_pipeline.log"
+
+# =============================================================================
+# NOTES ON USAGE
+# =============================================================================
+# 
+# AUTOMATIC PATH DERIVATION:
+# ==============================
+# 1. Teacher trains with PCA models in:
+#    {teacher.output_dir}/.working/preprocessed_arrays/pca_models/
+#
+# 2. Student automatically finds teacher models in:
+#    {teacher.output_dir}/teacher_model_FROZEN.pt
+#
+# 3. Student automatically finds teacher PCA models in:
+#    {teacher.output_dir}/.working/preprocessed_arrays/pca_models/
+#
+# 4. All student visualizations saved in:
+#    {student.output_dir}/post-training/visualizations/
+#
+# NO MANUAL PATH CONFIGURATION NEEDED!
+#
+# FOLDER STRUCTURE CREATED:
+# ===========================
+# GEO Ablation Study/
+# ├── TEACHER_UNIFIED_GEO_0.6_PCA/
+# │   ├── .working/
+# │   │   ├── arrays/
+# │   │   └── preprocessed_arrays/
+# │   │       ├── pca_models/
+# │   │       │   ├── pca_image_encoder.pkl ← Used by student
+# │   │       │   ├── pca_gene_encoder.pkl
+# │   │       │   └── pca_cell_encoder.pkl
+# │   │       └── *.npy (preprocessed embeddings)
+# │   ├── preprocessing/
+# │   ├── training/
+# │   │   ├── models/
+# │   │   ├── metrics/
+# │   │   └── visualizations/
+# │   ├── post-training/
+# │   │   ├── metrics/
+# │   │   └── visualizations/ (spatial heatmaps, etc)
+# │   ├── teacher_model_FROZEN.pt ← Passed to student
+# │   └── pipeline_execution.log
+# │
+# └── STUDENT_UNIFIED_GEO_0.6_PCA/
+#     ├── .working/
+#     │   └── preprocessed_arrays/
+#     │       └── (student PCA models if different)
+#     ├── preprocessing/
+#     ├── training/
+#     │   ├── models/
+#     │   ├── metrics/
+#     │   └── visualizations/
+#     ├── post-training/
+#     │   ├── metrics/
+#     │   └── visualizations/ (comparative, preprocessing)
+#     └── pipeline_execution.log
+#
+# =============================================================================
+#bash run_unified_pipeline.sh modular_unified_teacher_student_GEO.yaml

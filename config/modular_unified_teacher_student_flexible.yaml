@@ -1,0 +1,196 @@
+# =============================================================================
+# UNIFIED TEACHER-STUDENT CONFIGURATION - FLEXIBLE TEMPLATE
+# =============================================================================
+#
+# PURPOSE:
+#   Template for adapting the pipeline to custom datasets
+#   - Modify paths to point to your dataset location
+#   - Adjust architecture parameters as needed
+#   - Run: ./run_unified_pipeline.sh config/modular_unified_teacher_student_flexible.yaml
+#
+# PHILOSOPHY:
+#   - One config = One complete pipeline
+#   - Teacher output paths → Student input paths (automatic)
+#   - PCA models shared (teacher learns, student reuses)
+#   - All paths relative and configurable
+#
+# =============================================================================
+
+# =============================================================================
+# DATASET METADATA (Global - shared by both)
+# =============================================================================
+dataset:
+  name: "Custom Dataset"               # ← CHANGE THIS
+  n_samples: null                      # Auto-detect from data
+  n_classes: 5                         # ← CHANGE if different
+  class_names:
+    - "Class_1"                        # ← UPDATE with your class names
+    - "Class_2"
+    - "Class_3"
+    - "Class_4"
+    - "Class_5"
+  description: "Unified teacher-student pipeline: custom dataset"
+
+# =============================================================================
+# PIPELINE EXECUTION CONTROL
+# =============================================================================
+pipeline:
+  run_teacher: true                    # Train teacher model
+  run_student: true                    # Train student model
+  run_visualizations: true             # Generate visualizations
+  device: "cpu"                        # "cpu" or "cuda"
+  
+  # Fold configuration
+  n_folds: 5                          # Number of cross-validation folds
+  folds_test_size: 0.2                # Test set size per fold
+  random_seed: 42                     # For reproducibility
+  n_jobs: 4                           # Parallel jobs
+
+# =============================================================================
+# [1] SHARED INPUT DATA PATHS
+# =============================================================================
+input_dataset:
+  # ← UPDATE THESE PATHS TO YOUR DATASET LOCATION
+  labels_file: "./YOUR_DATA/barcode_labels.csv"
+  metadata_file: "./YOUR_DATA/barcode_metadata.csv"
+  label_mapping_file: "./YOUR_DATA/label_mapping.json"
+  
+  # Embedding CSVs (teacher uses all 3, student uses only image_encoder)
+  image_encoder_embeddings: "./YOUR_DATA/YOUR_MORPHOLOGY_EMBEDDINGS.csv"
+  gene_embeddings: "./YOUR_DATA/YOUR_GENE_EMBEDDINGS.csv"
+  cell_composition_embeddings: "./YOUR_DATA/YOUR_CELL_COMPOSITION_EMBEDDINGS.csv"
+
+# =============================================================================
+# [2] PREPROCESSING & PCA CONFIGURATION (SHARED)
+# =============================================================================
+embeddings:
+  image_encoder:
+    name: "Morphology Encoder"
+    file_path: "./YOUR_DATA/YOUR_MORPHOLOGY_EMBEDDINGS.csv"
+    pca_variance: 0.6          # Reduce to 60% variance (adjust as needed)
+    description: "H&E morphology features"
+  
+  gene_encoder:
+    name: "Gene Encoder"
+    file_path: "./YOUR_DATA/YOUR_GENE_EMBEDDINGS.csv"
+    pca_variance: null         # No PCA, use full dimensions
+    description: "Gene expression latent space"
+  
+  cell_encoder:
+    name: "Cell Composition"
+    file_path: "./YOUR_DATA/YOUR_CELL_COMPOSITION_EMBEDDINGS.csv"
+    pca_variance: null         # No PCA, use full dimensions
+    description: "Cell type composition"
+
+preprocessing:
+  remove_nan_rows: false
+  remove_inf_rows: true
+  nan_tolerance_percent: 0.5
+  normalize_before_pca: false
+  normalization_method: "standard"
+  save_pca_models: true        # CRITICAL: Save for student reuse
+  save_preprocessed_arrays: true
+
+# =============================================================================
+# [3] TEACHER MODEL CONFIGURATION
+# =============================================================================
+teacher:
+  # Architecture (multimodal - uses all embeddings)
+  model_type: "multimodal"
+  hidden_dims: [256, 128, 64]  # Adjust for your problem size
+  
+  # Training
+  learning_rate: 0.001
+  batch_size: 32
+  n_epochs: 200
+  weight_decay: 1e-5
+  dropout_rate: 0.3
+  use_batch_norm: true
+  use_class_weights: true      # Handle class imbalance
+  early_stopping_patience: 20
+  validation_split: 0.2
+  
+  # Output directory
+  output_dir: "./YOUR_OUTPUT/TEACHER_CUSTOM_0.6_PCA"
+
+# =============================================================================
+# [4] STUDENT MODEL CONFIGURATION  
+# =============================================================================
+student:
+  # Architecture (morphology-only, smaller than teacher)
+  model_type: "morphology_only"  # Uses only image_encoder embeddings
+  hidden_dims: [128, 64, 32]     # Smaller network for compression
+  
+  # Training
+  learning_rate: 0.001
+  batch_size: 32
+  n_epochs: 150
+  weight_decay: 1e-5
+  dropout_rate: 0.3
+  use_batch_norm: true
+  use_class_weights: true
+  early_stopping_patience: 15
+  validation_split: 0.2
+  
+  # Knowledge Distillation
+  distillation:
+    # Teacher model paths are AUTOMATICALLY DERIVED from teacher output_dir
+    alpha: 0.7        # Hard target loss weight
+    beta: 0.2         # Soft target loss weight (teacher mimicking)
+    gamma: 0.1        # Feature matching loss weight
+    temperature: 4.0  # Softness of teacher logits (higher = softer)
+  
+  # Output directory
+  output_dir: "./YOUR_OUTPUT/STUDENT_CUSTOM_0.6_PCA"
+
+# =============================================================================
+# [5] VISUALIZATION CONFIGURATION
+# =============================================================================
+visualization:
+  save_plots: true
+  plot_dpi: 150
+  include_spatial: true        # Requires x_coord, y_coord in metadata
+  include_neighborhood: true
+  include_comparative: true
+  
+  # Outputs automatically saved to: {student.output_dir}/post-training/visualizations/
+
+# =============================================================================
+# [6] LOGGING
+# =============================================================================
+logging:
+  level: "INFO"
+  save_log: true
+  teacher_log: "teacher_training.log"
+  student_log: "student_training.log"
+  unified_log: "unified_pipeline.log"
+
+# =============================================================================
+# HOW TO USE THIS TEMPLATE
+# =============================================================================
+#
+# 1. Copy this file: cp config/modular_unified_teacher_student_flexible.yaml config/my_dataset.yaml
+# 
+# 2. Edit config/my_dataset.yaml:
+#    - Replace "YOUR_DATA" paths with actual data location
+#    - Replace "YOUR_OUTPUT" with desired results location
+#    - Update dataset.name, class_names if needed
+#    - Adjust hyperparameters (learning_rate, n_epochs, hidden_dims) if needed
+#
+# 3. Create your data directory structure:
+#    YOUR_DATA/
+#    ├── barcode_labels.csv              (one label per row, matching order of embeddings)
+#    ├── barcode_metadata.csv            (with x_coord, y_coord for spatial visualization)
+#    ├── label_mapping.json              ({"Fibrotic": 0, "Class2": 1, ...})
+#    ├── YOUR_MORPHOLOGY_EMBEDDINGS.csv  (NxD matrix of morphology features)
+#    ├── YOUR_GENE_EMBEDDINGS.csv        (NxD matrix of gene expression)
+#    └── YOUR_CELL_COMPOSITION_EMBEDDINGS.csv (NxD matrix of cell types)
+#
+# 4. Run the pipeline:
+#    ./run_unified_pipeline.sh config/my_dataset.yaml
+#
+# 5. Check output in YOUR_OUTPUT/:
+#    - TEACHER results in: TEACHER_CUSTOM_0.6_PCA/
+#    - STUDENT results in: STUDENT_CUSTOM_0.6_PCA/
+#
+# =============================================================================
