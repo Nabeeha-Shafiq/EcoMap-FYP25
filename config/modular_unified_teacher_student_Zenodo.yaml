@@ -69,7 +69,7 @@ embeddings:
   image_encoder:
     name: "Image Encoder (UNI)"
     file_path: "./ZENODO data/UNI_EMBEDDINGS_COMBINED.CSV"
-    pca_variance: 0.6          # 1024D → ~150D after PCA
+    pca_variance: 0.95         # 1024D → ~500D after PCA (Option 1: More features for student)
     description: "H&E morphology features"
   
   gene_encoder:
@@ -119,9 +119,9 @@ teacher:
 # [4] STUDENT MODEL CONFIGURATION  
 # =============================================================================
 student:
-  # Architecture (morphology-only, smaller)
+  # Architecture (morphology-only, MATCHES TEACHER for feature matching)
   model_type: "morphology_only" # Uses UNI only
-  hidden_dims: [128, 64, 32]    # Smaller than teacher
+  hidden_dims: [256, 128, 64]   # MATCHES TEACHER to enable gamma loss (feature matching)
   
   # Training
   learning_rate: 0.001

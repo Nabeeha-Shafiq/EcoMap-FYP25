@@ -136,64 +136,38 @@ class SpatialVisualizationPipeline:
             predictions_df['confidence'] = 0.5  # Default fallback
         
         print("\n" + "="*80)
-        print("[STAGE 2] Computing PCA coordinates from embeddings (per-patient)...")
+        print("[STAGE 2] Loading spatial coordinates from metadata...")
         print("="*80)
-        print("NOTE: Using PCA of 303D embeddings to generate PC1, PC2 coordinates")
-        print("       array_col = PC1, array_row = PC2 (embedding space coordinates)")
+        print("Using actual tissue spatial coordinates (x_coord, y_coord)")
         print("="*80)
         
-        # Create barcode to embedding index mapping
-        metadata_df_sorted = metadata_df.sort_values('barcode').reset_index(drop=True)
-        barcode_to_embedding_idx = {bc: idx for idx, bc in enumerate(metadata_df_sorted['barcode'])}
+        # Reset index to avoid alignment issues
+        predictions_df = predictions_df.reset_index(drop=True)
+        metadata_df = metadata_df.reset_index(drop=True)
         
-        # Initialize PCA coordinate columns
-        predictions_df['array_col'] = np.nan
-        predictions_df['array_row'] = np.nan
+        # Merge metadata spatial coordinates with predictions
+        merge_cols = ['barcode', 'patient_id']
+        merge_df = metadata_df[['barcode', 'patient_id', 'x_coord', 'y_coord']].copy()
         
-        # For each patient, apply PCA to their embeddings
+        # Perform merge with left join on predictions
+        predictions_df = predictions_df.merge(merge_df, on=['barcode', 'patient_id'], how='left')
+        
+        # Use x_coord, y_coord as array_col, array_row
+        predictions_df['array_col'] = predictions_df['x_coord']
+        predictions_df['array_row'] = predictions_df['y_coord']
+        
+        # Report stats per patient
         for patient_id in PATIENTS:
-            # Get all spots for this patient
             patient_mask = predictions_df['patient_id'] == patient_id
-            patient_spots = predictions_df[patient_mask].copy()
+            patient_data = predictions_df[patient_mask]
             
-            if patient_spots.empty:
-                print(f"  ⚠️  {patient_id}: No spots found")
-                continue
-            
-            # Get embedding indices for this patient's barcodes
-            embedding_indices = []
-            valid_rows = []
-            
-            for idx, (df_idx, row) in enumerate(predictions_df[patient_mask].iterrows()):
-                barcode = row['barcode']
-                emb_idx = barcode_to_embedding_idx.get(barcode)
-                
-                if emb_idx is not None:
-                    embedding_indices.append(emb_idx)
-                    valid_rows.append(df_idx)
-            
-            if not embedding_indices:
-                print(f"  ⚠️  {patient_id}: No valid embeddings found")
-                continue
-            
-            # Extract patient's embeddings
-            patient_embeddings = embeddings_array[embedding_indices]  # Shape: (n_spots, 303)
-            
-            # Apply PCA to reduce 303D embeddings to 2D
-            pca = PCA(n_components=2)
-            patient_pca_coords = pca.fit_transform(patient_embeddings)  # Shape: (n_spots, 2)
-            
-            # PC1 explained variance
-            variance_explained = pca.explained_variance_ratio_.sum()
-            
-            # Assign PC1, PC2 coordinates to dataframe
-            predictions_df.loc[valid_rows, 'array_col'] = patient_pca_coords[:, 0]  # PC1
-            predictions_df.loc[valid_rows, 'array_row'] = patient_pca_coords[:, 1]  # PC2
-            
-            print(f"  ✓ {patient_id}: {len(embedding_indices)} spots | "
-                  f"Variance explained: {variance_explained:.2%} | "
-                  f"PC1 range: [{patient_pca_coords[:, 0].min():.2f}, {patient_pca_coords[:, 0].max():.2f}] | "
-                  f"PC2 range: [{patient_pca_coords[:, 1].min():.2f}, {patient_pca_coords[:, 1].max():.2f}]")
+            valid_coords = patient_data.dropna(subset=['array_col', 'array_row'])
+            if len(valid_coords) > 0:
+                print(f"  ✓ {patient_id}: {len(valid_coords)} spots | "
+                      f"X range: [{valid_coords['array_col'].min():.1f}, {valid_coords['array_col'].max():.1f}] | "
+                      f"Y range: [{valid_coords['array_row'].min():.1f}, {valid_coords['array_row'].max():.1f}]")
+            else:
+                print(f"  ⚠️  {patient_id}: No valid coordinates found")
         
         # Drop rows with missing coordinates
         rows_before = len(predictions_df)
@@ -239,10 +213,10 @@ class SpatialVisualizationPipeline:
                     s=60, alpha=0.7, edgecolors='black', linewidths=0.5
                 )
         
-        ax1.set_title(f'{patient_id} - Ground Truth Labels\n(Embedding Space Coordinates)', 
+        ax1.set_title(f'{patient_id} - Ground Truth Labels\n(Tissue Spatial Coordinates)', 
                       fontsize=14, fontweight='bold')
-        ax1.set_xlabel('PC1 - 1st Principal Component (from 303D embeddings)', fontsize=11)
-        ax1.set_ylabel('PC2 - 2nd Principal Component (from 303D embeddings)', fontsize=11)
+        ax1.set_xlabel('X Coordinate (Tissue Space)', fontsize=11)
+        ax1.set_ylabel('Y Coordinate (Tissue Space)', fontsize=11)
         ax1.legend(loc='upper right', fontsize=9, framealpha=0.9)
         ax1.set_aspect('equal')
         ax1.grid(True, alpha=0.3)
@@ -264,8 +238,8 @@ class SpatialVisualizationPipeline:
         
         ax2.set_title(f'{patient_id} - Model Predictions\n(Accuracy: {overall_accuracy:.2f}%)', 
                       fontsize=14, fontweight='bold')
-        ax2.set_xlabel('PC1 - 1st Principal Component (from 303D embeddings)', fontsize=11)
-        ax2.set_ylabel('PC2 - 2nd Principal Component (from 303D embeddings)', fontsize=11)
+        ax2.set_xlabel('X Coordinate (Tissue Space)', fontsize=11)
+        ax2.set_ylabel('Y Coordinate (Tissue Space)', fontsize=11)
         ax2.legend(loc='upper right', fontsize=9, framealpha=0.9)
         ax2.set_aspect('equal')
         ax2.grid(True, alpha=0.3)
@@ -299,8 +273,8 @@ class SpatialVisualizationPipeline:
         
         ax3.set_title(f'{patient_id} - Accuracy Map\n(Accuracy: {accuracy:.2f}%)', 
                       fontsize=14, fontweight='bold')
-        ax3.set_xlabel('PC1 - 1st Principal Component (from 303D embeddings)', fontsize=11)
-        ax3.set_ylabel('PC2 - 2nd Principal Component (from 303D embeddings)', fontsize=11)
+        ax3.set_xlabel('X Coordinate (Tissue Space)', fontsize=11)
+        ax3.set_ylabel('Y Coordinate (Tissue Space)', fontsize=11)
         ax3.legend(loc='upper right', fontsize=10, framealpha=0.9)
         ax3.set_aspect('equal')
         ax3.grid(True, alpha=0.3)
@@ -342,10 +316,10 @@ class SpatialVisualizationPipeline:
         cbar1 = plt.colorbar(scatter1, ax=ax1)
         cbar1.set_label('Prediction Confidence', fontsize=12, fontweight='bold')
         
-        ax1.set_title(f'{patient_id} - Confidence Map\n(Embedding Space, Higher = More Certain)', 
+        ax1.set_title(f'{patient_id} - Confidence Map\n(Tissue Space, Higher = More Certain)', 
                       fontsize=14, fontweight='bold')
-        ax1.set_xlabel('PC1 - 1st Principal Component (from 303D embeddings)', fontsize=11)
-        ax1.set_ylabel('PC2 - 2nd Principal Component (from 303D embeddings)', fontsize=11)
+        ax1.set_xlabel('X Coordinate (Tissue Space)', fontsize=11)
+        ax1.set_ylabel('Y Coordinate (Tissue Space)', fontsize=11)
         ax1.set_aspect('equal')
         ax1.grid(True, alpha=0.3)
         
@@ -382,10 +356,10 @@ class SpatialVisualizationPipeline:
             s=100, alpha=0.9, edgecolors='black', linewidths=1, marker='s'
         )
         
-        ax2.set_title(f'{patient_id} - Uncertainty Regions\n(Embedding Space, Red = Model Unsure)', 
+        ax2.set_title(f'{patient_id} - Uncertainty Regions\n(Tissue Space, Red = Model Unsure)', 
                       fontsize=14, fontweight='bold')
-        ax2.set_xlabel('PC1 - 1st Principal Component (from 303D embeddings)', fontsize=11)
-        ax2.set_ylabel('PC2 - 2nd Principal Component (from 303D embeddings)', fontsize=11)
+        ax2.set_xlabel('X Coordinate (Tissue Space)', fontsize=11)
+        ax2.set_ylabel('Y Coordinate (Tissue Space)', fontsize=11)
         ax2.legend(loc='upper right', fontsize=10, framealpha=0.9)
         ax2.set_aspect('equal')
         ax2.grid(True, alpha=0.3)
@@ -492,8 +466,8 @@ class SpatialVisualizationPipeline:
                 title_text = f"{ecotype}\n(Insufficient data)\nn = {len(ecotype_data)}"
             
             ax.set_title(title_text, fontsize=11, fontweight='bold')
-            ax.set_xlabel('PC1 (from 303D embeddings)', fontsize=10)
-            ax.set_ylabel('PC2 (from 303D embeddings)', fontsize=10)
+            ax.set_xlabel('X Coordinate (Tissue Space)', fontsize=10)
+            ax.set_ylabel('Y Coordinate (Tissue Space)', fontsize=10)
             ax.set_aspect('equal')
             ax.grid(True, alpha=0.3)
             ax.legend(loc='upper right', fontsize=9)
@@ -582,8 +556,8 @@ Total Spots: {len(patient_data)}"""
                     text=patient_data.loc[mask].apply(
                         lambda row: f"<b>{row['predicted_ecotype']}</b><br>"
                                   f"Confidence: {row.get('confidence', 0):.3f}<br>"
-                                  f"Embedding Position: (PC1={row['array_col']:.2f}, PC2={row['array_row']:.2f})<br>"
-                                  f"<i>X,Y = Embedding Space | Higher Z = Higher Confidence</i>", 
+                                  f"Position: (X={row['array_col']:.2f}, Y={row['array_row']:.2f})<br>"
+                                  f"<i>Tissue Spatial Location</i>", 
                         axis=1
                     ),
                     hoverinfo='text'
@@ -591,10 +565,10 @@ Total Spots: {len(patient_data)}"""
         
         fig.update_layout(
             title=f'{patient_id} - 3D Tissue Landscape<br>'
-                  f'<sub>X,Y = Embedding Space (PC1, PC2 from 303D) | Z = {z_label} | Color = Ecotype</sub>',
+                  f'<sub>X,Y = Tissue Spatial Coordinates | Z = {z_label} | Color = Ecotype</sub>',
             scene=dict(
-                xaxis_title='PC1 - 1st Principal Component (from 303D embeddings)',
-                yaxis_title='PC2 - 2nd Principal Component (from 303D embeddings)',
+                xaxis_title='X Coordinate (Tissue Space)',
+                yaxis_title='Y Coordinate (Tissue Space)',
                 zaxis_title=f'{z_label}',
                 zaxis=dict(nticks=4, range=[0, 1]),
                 camera=dict(

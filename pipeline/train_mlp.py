@@ -134,7 +134,7 @@ class MLPTrainer:
         """Calculate inverse frequency weights for class balancing"""
         classes, counts = np.unique(y, return_counts=True)
         weights = len(y) / (len(classes) * counts)
-        weights = weights / weights.sum() * len(classes)  # normalize
+        weights = weights / weights.sum() * len(classes)  # normalize or like multiply scale
         return torch.tensor(weights, dtype=torch.float32).to(self.device)
     
     def train_epoch(self, train_loader: DataLoader, criterion: nn.Module):
@@ -273,8 +273,8 @@ class MLPTrainer:
                     print(f"    Early stopping at epoch {epoch+1}")
                 break
             
-            if verbose and (epoch + 1) % 50 == 0:
-                print(f"    Epoch {epoch+1:3d}: train_loss={train_loss:.4f}, val_loss={val_loss:.4f}, "
+            if verbose and (epoch + 1) % 5 == 0:
+                print(f"    Epoch {epoch+1:3d}/{epochs}: train_loss={train_loss:.4f}, val_loss={val_loss:.4f}, "
                       f"train_acc={train_acc:.4f}, val_acc={val_acc:.4f}")
         
         # Restore best model
@@ -377,8 +377,8 @@ def main():
     parser.add_argument(
         '--embeddings',
         type=str,
-        required=True,
-        help='Path to fused embeddings'
+        required=False,
+        help='Path to fused embeddings (optional if config provided)'
     )
     
     parser.add_argument(
@@ -391,8 +391,8 @@ def main():
     parser.add_argument(
         '--output',
         type=str,
-        required=True,
-        help='Output directory for results'
+        required=False,
+        help='Output directory for results (optional if config provided)'
     )
     
     parser.add_argument(
@@ -423,7 +423,6 @@ def main():
         import yaml
         with open(args.config, 'r') as f:
             config = yaml.safe_load(f)
-        training_config = config.get('training', {})
         
         # Get labels from config if not provided via args
         if not args.labels:
@@ -435,13 +434,43 @@ def main():
                     labels_path = Path.cwd() / labels_file
                 args.labels = str(labels_path)
         
+        # Get output directory from config if not provided via args
+        if not args.output:
+            # Try teacher output first, then student output
+            teacher_output = config.get('teacher', {}).get('output_dir')
+            student_output = config.get('student', {}).get('output_dir')
+            output_dir = teacher_output or student_output
+            if output_dir:
+                output_path = Path(output_dir)
+                if not output_path.is_absolute():
+                    output_path = Path.cwd() / output_dir
+                args.output = str(output_path)
+        
+        # Get embeddings from config if not provided via args
+        if not args.embeddings:
+            # Get output directory to find preprocessed embeddings
+            if args.output:
+                output_path = Path(args.output)
+                # Look for fused_embeddings_pca.npy in .working/preprocessed_arrays
+                embeddings_path = output_path / '.working' / 'preprocessed_arrays' / 'fused_embeddings_pca.npy'
+                if embeddings_path.exists():
+                    args.embeddings = str(embeddings_path)
+                else:
+                    print(f"  ⚠ WARNING: Preprocessed embeddings not found at {embeddings_path}")
+                    print(f"             You may need to run preprocessing first or provide --embeddings")
+        
+        # Get training config for hyperparameters
+        training_config = config.get('training', {})
+        teacher_config = config.get('teacher', {})
+        student_config = config.get('student', {})
+        
         # Use config values as defaults if not provided via command line
         if args.epochs is None:
-            args.epochs = training_config.get('n_epochs', 200)
+            args.epochs = training_config.get('n_epochs') or teacher_config.get('n_epochs') or student_config.get('n_epochs') or 200
         if args.batch_size is None:
-            args.batch_size = training_config.get('batch_size', 32)
+            args.batch_size = training_config.get('batch_size') or teacher_config.get('batch_size') or student_config.get('batch_size') or 32
         if args.learning_rate is None:
-            args.learning_rate = training_config.get('learning_rate', 1e-3)
+            args.learning_rate = training_config.get('learning_rate') or teacher_config.get('learning_rate') or student_config.get('learning_rate') or 1e-3
     else:
         # Use defaults if no config
         if args.epochs is None:
@@ -454,13 +483,21 @@ def main():
             print("  ✗ ERROR: Either --config or --labels must be provided")
             sys.exit(1)
     
+    # Final validation
+    if not args.embeddings:
+        print("  ✗ ERROR: --embeddings path not found or provided")
+        sys.exit(1)
+    if not args.output:
+        print("  ✗ ERROR: --output directory not found or provided")
+        sys.exit(1)
+    
     # Create output directory
     output_dir = Path(args.output)
     output_dir.mkdir(parents=True, exist_ok=True)
     
     # Create subdirectories for organized output
-    metrics_dir = output_dir / 'metrics'
-    visualizations_dir = output_dir / 'visualizations'
+    metrics_dir = output_dir / 'training' / 'metrics'
+    visualizations_dir = output_dir / 'training' / 'visualizations'
     metrics_dir.mkdir(parents=True, exist_ok=True)
     visualizations_dir.mkdir(parents=True, exist_ok=True)
     
@@ -547,7 +584,7 @@ def main():
         )
         
         # Train
-        trainer.fit(X_train, y_train, X_val, y_val, epochs=args.epochs, verbose=False,
+        trainer.fit(X_train, y_train, X_val, y_val, epochs=args.epochs, verbose=True,
                    metrics_tracker=metrics_tracker, fold_idx=fold_idx)
         
         # Predict on validation set
@@ -695,9 +732,18 @@ def main():
         pickle.dump(label_encoder, f)
     print(f"  ✓ label_encoder.pkl")
     
-    # Save best model (fold 1)
+    # Save all fold models for ensemble building
+    models_dir = output_dir / 'training' / 'models'
+    models_dir.mkdir(parents=True, exist_ok=True)
+    print(f"  Saving fold models to {models_dir}...")
+    for fold_idx, fold_result in enumerate(fold_results):
+        model_path = models_dir / f"fold_{fold_idx}_best_model.pth"
+        torch.save(fold_result['model_state'], model_path)
+        print(f"    ✓ fold_{fold_idx}_best_model.pth (Accuracy: {fold_result['accuracy']:.4f})")
+    
+    # Save best model (fold 1) also to metrics for legacy compatibility
     torch.save(fold_results[0]['model_state'], metrics_dir / 'model_best.pt')
-    print(f"  ✓ model_best.pt (Fold 1)")
+    print(f"  ✓ model_best.pt (Fold 1 - legacy)")
     
     print()
     

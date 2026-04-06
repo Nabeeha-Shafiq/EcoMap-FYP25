@@ -1,0 +1,190 @@
+# =============================================================================
+# ABLATION STUDY: Teacher Multimodal vs Student Gene-Only (ZENODO)
+# =============================================================================
+#
+# PURPOSE:
+#   Investigate influence of gene expression embeddings (scVI) on ZENODO dataset
+#   - Teacher: Multimodal (UNI + scVI + RCTD) = 153D (Zenodo has 15D RCTD)
+#   - Student: Gene-Only (scVI) = 128D
+#
+# HYPOTHESIS:
+#   Compare student performance using only gene expression features
+#   to determine relative importance of gene modality
+#
+# =============================================================================
+
+# =============================================================================
+# DATASET METADATA (Global - shared by both)
+# =============================================================================
+dataset:
+  name: "Zenodo Unified"
+  n_samples: null  # Auto-detect
+  n_classes: 5
+  class_names:
+    - "Fibrotic"
+    - "Immunosuppressive"
+    - "Invasive_Border"
+    - "Metabolic"
+    - "Normal_Adjacent"
+  description: "Ablation: Teacher Multimodal vs Student Gene-Only"
+
+# =============================================================================
+# PIPELINE EXECUTION CONTROL
+# =============================================================================
+pipeline:
+  run_teacher: true
+  run_student: true
+  run_visualizations: true
+  device: "cpu"
+  
+  n_folds: 5
+  folds_test_size: 0.2
+  random_seed: 42
+  n_jobs: 4
+
+# =============================================================================
+# [1] SHARED INPUT DATA PATHS (TEACHER USES ALL 3 MODALITIES)
+# =============================================================================
+input_dataset:
+  # Labels and Metadata (SAME for both teacher and student)
+  labels_file: "./ZENODO data/barcode_labels.csv"
+  metadata_file: "./ZENODO data/barcode_metadata.csv"
+  label_mapping_file: "./ZENODO data/label_mapping.json"
+  
+  # Embedding CSVs (TEACHER uses all 3)
+  image_encoder_embeddings: "./ZENODO data/UNI_EMBEDDINGS_COMBINED.CSV"
+  gene_embeddings: "./ZENODO data/SCVI_EMBEDDINGS_COMBINED.CSV"
+  cell_composition_embeddings: "./ZENODO data/RCTD_25D_COMBINED.CSV"
+
+# =============================================================================
+# [2] PREPROCESSING & PCA CONFIGURATION (FOR TEACHER - ALL 3 MODALITIES)
+# =============================================================================
+embeddings:
+  image_encoder:
+    name: "Image Encoder (UNI)"
+    file_path: "./ZENODO data/UNI_EMBEDDINGS_COMBINED.CSV"
+    pca_variance: 0.6         # UNI: 1024D → ~500D after PCA
+    description: "H&E morphology features"
+  
+  gene_encoder:
+    name: "Gene Encoder (scVI)"
+    file_path: "./ZENODO data/SCVI_EMBEDDINGS_COMBINED.CSV"
+    pca_variance: null         # No PCA, use 128D as-is
+    description: "Gene expression latent space"
+  
+  cell_encoder:
+    name: "Cell Composition (RCTD)"
+    file_path: "./ZENODO data/RCTD_25D_COMBINED.CSV"
+    pca_variance: null         # No PCA, use 25D as-is
+    description: "Cell type composition"
+
+# =============================================================================
+# [2b] STUDENT-SPECIFIC EMBEDDINGS (GENE EXPRESSION ONLY)
+# =============================================================================
+student_embeddings:
+  # Student uses ONLY gene expression embeddings (scVI)
+  image_encoder_embeddings: "./ZENODO data/SCVI_EMBEDDINGS_COMBINED.CSV"  # ← GENE ONLY for student
+  gene_embeddings: null
+  cell_composition_embeddings: null
+
+preprocessing:
+  remove_nan_rows: false
+  remove_inf_rows: true
+  nan_tolerance_percent: 0.5
+  normalize_before_pca: false
+  normalization_method: "standard"
+  save_pca_models: true
+  save_preprocessed_arrays: true
+
+# =============================================================================
+# [3] TEACHER MODEL CONFIGURATION (MULTIMODAL - ALL 3 MODALITIES)
+# =============================================================================
+teacher:
+  # Architecture (multimodal)
+  model_type: "multimodal"      # Uses all 3 modalities: UNI + scVI + RCTD
+  hidden_dims: [256, 128, 64]
+  
+  # Training
+  learning_rate: 0.001
+  batch_size: 32
+  n_epochs: 200
+  weight_decay: 1e-5
+  dropout_rate: 0.3
+  use_batch_norm: true
+  use_class_weights: true
+  early_stopping_patience: 20
+  validation_split: 0.2
+  
+  # Output directory
+  output_dir: "./ZENODO Ablation Study/TEACHER_MULTIMODAL_ZENODO_baseline"
+
+# =============================================================================
+# [4] STUDENT MODEL CONFIGURATION (GENE-ONLY)
+# =============================================================================
+student:
+  # Architecture (gene expression only)
+  model_type: "gene_only"       # Student uses only scVI embeddings
+  hidden_dims: [256, 128, 64]   # Match teacher architecture for feature matching
+  
+  # Training
+  learning_rate: 0.001
+  batch_size: 32
+  n_epochs: 150
+  weight_decay: 1e-5
+  dropout_rate: 0.3
+  use_batch_norm: true
+  use_class_weights: true
+  early_stopping_patience: 55
+  validation_split: 0.2
+  
+  # Knowledge Distillation
+  distillation:
+    alpha: 0.7        # Hard target weight
+    beta: 0.2         # Soft target weight (teacher mimicking)
+    gamma: 0.1        # Feature matching weight
+    temperature: 4.0  # Softness of teacher logits
+  
+  # Output directory
+  output_dir: "./ZENODO Ablation Study/STUDENT_GENEONLY_ZENODO_ablation"
+
+# =============================================================================
+# [5] VISUALIZATION CONFIGURATION
+# =============================================================================
+visualization:
+  save_plots: true
+  plot_dpi: 150
+  include_spatial: true
+  include_neighborhood: true
+  include_comparative: true
+
+# =============================================================================
+# [6] LOGGING
+# =============================================================================
+logging:
+  level: "INFO"
+  save_log: true
+  teacher_log: "teacher_training.log"
+  student_log: "student_training.log"
+  unified_log: "unified_pipeline.log"
+
+# =============================================================================
+# NOTES
+# =============================================================================
+#
+# ABLATION STUDY GOAL:
+# ====================
+# Determine if gene expression (scVI) features are predictive of ecotypes
+#
+# ARCHITECTURE:
+# ==============
+# Teacher Input: 153D (UNI:150D + scVI:128D + RCTD:25D for Zenodo)
+# Student Input: 128D (scVI only)
+#
+# KEY OBSERVATIONS:
+# ====================
+# - Gene-only student has similar input dimension to morphology-only
+# - But different feature semantics (expression vs morphology)
+# - Will help determine if both modalities are equally informative
+#
+# =============================================================================
+#./run_unified_pipeline.sh config/modular_unified_teacher_student_Zenodo_student_geneonly.yaml

@@ -31,6 +31,7 @@ Configuration (from geo_example.yaml):
 
 import numpy as np
 import yaml
+import pickle
 from pathlib import Path
 from sklearn.decomposition import PCA
 import argparse
@@ -94,6 +95,7 @@ def apply_pca(embedding, n_components):
     Returns:
         reduced_embedding: (N, n_components) array
         nan_mask: boolean array indicating rows with NaN
+        pca_model: fitted PCA model (for reuse)
     """
     # Detect rows with NaN
     nan_mask = np.any(np.isnan(embedding), axis=1)
@@ -119,7 +121,7 @@ def apply_pca(embedding, n_components):
     # Transform the imputed data
     reduced = pca.fit_transform(embedding_imputed)
     
-    return reduced, nan_mask
+    return reduced, nan_mask, pca
 
 def main():
     parser = argparse.ArgumentParser(
@@ -221,6 +223,7 @@ def main():
     
     preprocessed = {}
     pca_stats = {}
+    pca_models = {}  # Store PCA models for reuse
     
     # Image encoder (UNI)
     print("\n  Image Encoder (UNI - 1024D):")
@@ -238,7 +241,8 @@ def main():
         }
     else:
         n_dims, actual_var = calculate_pca_dimensions(uni_emb, uni_pca_config)
-        uni_processed, uni_nan_mask = apply_pca(uni_emb, n_dims)
+        uni_processed, uni_nan_mask, uni_pca_model = apply_pca(uni_emb, n_dims)
+        pca_models['image_encoder'] = uni_pca_model
         if isinstance(uni_pca_config, int):
             config_str = f"{uni_pca_config}D (fixed dimensions)"
         else:
@@ -273,7 +277,8 @@ def main():
         }
     else:
         n_dims, actual_var = calculate_pca_dimensions(scvi_emb, scvi_pca_config)
-        scvi_processed, scvi_nan_mask = apply_pca(scvi_emb, n_dims)
+        scvi_processed, scvi_nan_mask, scvi_pca_model = apply_pca(scvi_emb, n_dims)
+        pca_models['gene_encoder'] = scvi_pca_model
         if isinstance(scvi_pca_config, int):
             config_str = f"{scvi_pca_config}D (fixed dimensions)"
         else:
@@ -308,7 +313,8 @@ def main():
         }
     else:
         n_dims, actual_var = calculate_pca_dimensions(rctd_emb, rctd_pca_config)
-        rctd_processed, rctd_nan_mask = apply_pca(rctd_emb, n_dims)
+        rctd_processed, rctd_nan_mask, rctd_pca_model = apply_pca(rctd_emb, n_dims)
+        pca_models['cell_encoder'] = rctd_pca_model
         if isinstance(rctd_pca_config, int):
             config_str = f"{rctd_pca_config}D (fixed dimensions)"
         else:
@@ -343,6 +349,28 @@ def main():
     
     np.save(output_dir / "barcodes.npy", barcodes)
     print(f"  ✓ Saved: barcodes.npy {barcodes.shape}")
+    print()
+    
+    # Save PCA models for reuse (e.g., by student model)
+    print("[STAGE 4B] Saving PCA Models for Reuse")
+    print("─" * 80)
+    pca_models_dir = output_dir / "pca_models"
+    pca_models_dir.mkdir(parents=True, exist_ok=True)
+    
+    if 'image_encoder' in pca_models:
+        with open(pca_models_dir / "pca_image_encoder.pkl", 'wb') as f:
+            pickle.dump(pca_models['image_encoder'], f)
+        print(f"  ✓ Saved: pca_image_encoder.pkl (UNI PCA model)")
+    
+    if 'gene_encoder' in pca_models:
+        with open(pca_models_dir / "pca_gene_encoder.pkl", 'wb') as f:
+            pickle.dump(pca_models['gene_encoder'], f)
+        print(f"  ✓ Saved: pca_gene_encoder.pkl (Gene encoder PCA model)")
+    
+    if 'cell_encoder' in pca_models:
+        with open(pca_models_dir / "pca_cell_encoder.pkl", 'wb') as f:
+            pickle.dump(pca_models['cell_encoder'], f)
+        print(f"  ✓ Saved: pca_cell_encoder.pkl (Cell encoder PCA model)")
     print()
     
     # Create fused embedding

@@ -132,8 +132,68 @@ def build_ensemble_teacher(teacher_output_dir):
         else:
             print(f"⚠ Fold {fold_idx} model not found")
     
+    # If no fold models found, fall back to best model
     if not fold_models:
-        raise FileNotFoundError(f"No fold models found in {models_dir}")
+        print(f"\n⚠ No fold models found in {models_dir}")
+        print(f"  Falling back to best model...")
+        
+        # Try to find model_best.pt in metrics directory
+        best_model_path = metrics_dir / "model_best.pt"
+        if best_model_path.exists():
+            print(f"✓ Found best model at {best_model_path}")
+            state_dict = torch.load(best_model_path, map_location='cpu')
+            
+            # Create model instance
+            hyperparams = metrics['hyperparameters']
+            input_dim = metrics['dataset']['n_features']
+            hidden_dims = hyperparams['hidden_dims']
+            num_classes = metrics['dataset']['n_classes']
+            dropout = hyperparams['dropout']
+            
+            ensemble_model = EcotypeClassifier(
+                input_dim=input_dim,
+                hidden_dims=hidden_dims,
+                num_classes=num_classes,
+                dropout=dropout
+            )
+            ensemble_model.load_state_dict(state_dict)
+            ensemble_model.eval()
+            
+            # Freeze all parameters
+            for param in ensemble_model.parameters():
+                param.requires_grad = False
+            
+            print(f"✓ Loaded best model (single model mode)")
+            
+            # Save as ensemble model
+            ensemble_model_path = teacher_output / "teacher_model_ENSEMBLE.pt"
+            state_dict_path = teacher_output / "teacher_state_dict_ENSEMBLE.pth"
+            frozen_model_path = teacher_output / "teacher_model_FROZEN.pt"
+            
+            torch.save(ensemble_model.state_dict(), ensemble_model_path)
+            torch.save(ensemble_model.state_dict(), state_dict_path)
+            torch.save(ensemble_model.state_dict(), frozen_model_path)  # Also save as FROZEN for student
+            
+            print(f"✓ Saved ensemble model: {ensemble_model_path}")
+            print(f"✓ Saved frozen teacher: {frozen_model_path}")
+            
+            # Create summary
+            summary = {
+                'mode': 'single_best',
+                'n_folds': len(fold_accuracies),
+                'fold_accuracies': fold_accuracies,
+                'mean_accuracy': float(np.mean(fold_accuracies)),
+                'std_accuracy': float(np.std(fold_accuracies)),
+                'input_dim': input_dim,
+                'hidden_dims': hidden_dims,
+                'num_classes': num_classes,
+                'model_path': str(ensemble_model_path),
+                'parameters_frozen': True
+            }
+            
+            return ensemble_model, summary
+        else:
+            raise FileNotFoundError(f"No fold models and no best model found in {metrics_dir}")
     
     print(f"\nLoaded {len(fold_models)} fold models")
     
@@ -159,8 +219,13 @@ def build_ensemble_teacher(teacher_output_dir):
     for param_name in fold_models[0].keys():
         # Stack all fold weights for this parameter
         param_stack = torch.stack([fold_state[param_name] for fold_state in fold_models])
-        # Average across folds
-        ensemble_state[param_name] = param_stack.mean(dim=0)
+        
+        # Only average floating point tensors (skip int buffers like num_batches_tracked)
+        if param_stack.dtype in [torch.float32, torch.float64, torch.float16]:
+            ensemble_state[param_name] = param_stack.mean(dim=0)
+        else:
+            # For non-float tensors (e.g., num_batches_tracked), take from first fold
+            ensemble_state[param_name] = fold_models[0][param_name]
     
     ensemble_model.load_state_dict(ensemble_state)
     ensemble_model.eval()
@@ -175,12 +240,15 @@ def build_ensemble_teacher(teacher_output_dir):
     # Save ensemble model
     ensemble_model_path = teacher_output / "teacher_model_ENSEMBLE.pt"
     state_dict_path = teacher_output / "teacher_state_dict_ENSEMBLE.pth"
+    frozen_model_path = teacher_output / "teacher_model_FROZEN.pt"
     
     torch.save(ensemble_model.state_dict(), ensemble_model_path)
     torch.save(ensemble_model.state_dict(), state_dict_path)
+    torch.save(ensemble_model.state_dict(), frozen_model_path)  # Also save as FROZEN for student
     
     print(f"\n✓ Saved ensemble model: {ensemble_model_path}")
     print(f"✓ Saved state dict: {state_dict_path}")
+    print(f"✓ Saved frozen teacher: {frozen_model_path}")
     
     # Create summary
     summary = {

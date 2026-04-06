@@ -1,18 +1,15 @@
 # =============================================================================
-# UNIFIED TEACHER-STUDENT CONFIGURATION - GEO Dataset
+# ABLATION STUDY: Teacher Multimodal vs Student Gene-Only
 # =============================================================================
 #
 # PURPOSE:
-#   Single YAML file for complete teacher-student pipeline
-#   - Eliminates config duplication
-#   - Single source of truth for all paths
-#   - Both teacher and student derive from shared settings
+#   Investigate influence of gene expression embeddings (scVI)
+#   - Teacher: Multimodal (UNI + scVI + RCTD) = 171D
+#   - Student: Gene-Only (scVI) = 128D
 #
-# PHILOSOPHY:
-#   - One config = One pipeline
-#   - Teacher output paths → Student input paths (automatic)
-#   - PCA models are shared (teacher learns, student reuses)
-#   - All paths relative, all configurable
+# HYPOTHESIS:
+#   Compare student performance using only gene expression features
+#   vs student using morphology features to determine which is more important
 #
 # =============================================================================
 
@@ -29,7 +26,7 @@ dataset:
     - "Invasive_Border"
     - "Metabolic"
     - "Normal_Adjacent"
-  description: "Unified teacher-student pipeline: GEO dataset"
+  description: "Ablation: Teacher Multimodal vs Student Gene-Only"
 
 # =============================================================================
 # PIPELINE EXECUTION CONTROL
@@ -40,14 +37,13 @@ pipeline:
   run_visualizations: true
   device: "cpu"
   
-  # Fold configuration (controlled here for consistency)
   n_folds: 5
   folds_test_size: 0.2
   random_seed: 42
   n_jobs: 4
 
 # =============================================================================
-# [1] SHARED INPUT DATA PATHS
+# [1] SHARED INPUT DATA PATHS (TEACHER USES ALL 3 MODALITIES)
 # =============================================================================
 input_dataset:
   # Labels and Metadata (SAME for both teacher and student)
@@ -55,22 +51,19 @@ input_dataset:
   metadata_file: "./GEO data/input_dataset/barcode_metadata.csv"
   label_mapping_file: "./GEO data/input_dataset/label_mapping.json"
   
-  # Embedding CSVs (teacher uses all, student uses only UNI)
+  # Embedding CSVs (TEACHER uses all 3)
   image_encoder_embeddings: "./GEO data/input_dataset/uni_embeddings_1024d_combined.csv"
-  #image_encoder_embeddings: "./GEO data/input_dataset/CONCH_EMBEDDINGS_COMBINED.CSV"
-  #image_encoder_embeddings: "./GEO data/input_dataset/HOPTIMUS_224__EMBEDDINGS_COMBINED.CSV"
   gene_embeddings: "./GEO data/input_dataset/SCVI_EMBEDDING_COMBINED.CSV"
   cell_composition_embeddings: "./GEO data/input_dataset/CELL_ENCODE_EMBEDDINGS.CSV"
 
 # =============================================================================
-# [2] PREPROCESSING & PCA CONFIGURATION (SHARED)
+# [2] PREPROCESSING & PCA CONFIGURATION (FOR TEACHER - ALL 3 MODALITIES)
 # =============================================================================
 embeddings:
   image_encoder:
     name: "Image Encoder (UNI)"
     file_path: "./GEO data/input_dataset/uni_embeddings_1024d_combined.csv"
-    #file_path: "./GEO data/input_dataset/HOPTIMUS_224__EMBEDDINGS_COMBINED.CSV"
-    pca_variance: null         # 1024D → ~500D after PCA (Option 1: More features for student)
+    pca_variance: 0.95         # UNI: 1024D → ~500D after PCA
     description: "H&E morphology features"
   
   gene_encoder:
@@ -85,21 +78,30 @@ embeddings:
     pca_variance: null         # No PCA, use 25D as-is
     description: "Cell type composition"
 
+# =============================================================================
+# [2b] STUDENT-SPECIFIC EMBEDDINGS (GENE EXPRESSION ONLY)
+# =============================================================================
+student_embeddings:
+  # Student uses ONLY gene expression embeddings (scVI)
+  image_encoder_embeddings: "./GEO data/input_dataset/SCVI_EMBEDDING_COMBINED.CSV"  # ← GENE ONLY for student
+  gene_embeddings: null
+  cell_composition_embeddings: null
+
 preprocessing:
   remove_nan_rows: false
   remove_inf_rows: true
   nan_tolerance_percent: 0.5
   normalize_before_pca: false
   normalization_method: "standard"
-  save_pca_models: true        # CRITICAL: Save for student reuse
+  save_pca_models: true
   save_preprocessed_arrays: true
 
 # =============================================================================
-# [3] TEACHER MODEL CONFIGURATION
+# [3] TEACHER MODEL CONFIGURATION (MULTIMODAL - ALL 3 MODALITIES)
 # =============================================================================
 teacher:
   # Architecture (multimodal)
-  model_type: "multimodal"      # Uses all 3 modalities
+  model_type: "multimodal"      # Uses all 3 modalities: UNI + scVI + RCTD
   hidden_dims: [256, 128, 64]
   
   # Training
@@ -114,15 +116,15 @@ teacher:
   validation_split: 0.2
   
   # Output directory
-  output_dir: "./GEO Ablation Study/UNI_CLASS_BALANCE_TEACHER_UNIFIED_GEO_no_PCA"
+  output_dir: "./GEO Ablation Study/TEACHER_MULTIMODAL_GEO_baseline"
 
 # =============================================================================
-# [4] STUDENT MODEL CONFIGURATION  
+# [4] STUDENT MODEL CONFIGURATION (GENE-ONLY)
 # =============================================================================
 student:
-  # Architecture (morphology-only, MATCHES TEACHER for feature matching)
-  model_type: "morphology_only" # Uses UNI only
-  hidden_dims: [256, 128, 64]   # MATCHES TEACHER to enable gamma loss (feature matching)
+  # Architecture (gene expression only)
+  model_type: "gene_only"       # Student uses only scVI embeddings
+  hidden_dims: [256, 128, 64]   # Match teacher architecture for feature matching
   
   # Training
   learning_rate: 0.001
@@ -137,19 +139,13 @@ student:
   
   # Knowledge Distillation
   distillation:
-    # Teacher path DERIVED from teacher output_dir
-    # (automatically set: {teacher.output_dir}/teacher_model_FROZEN.pt)
-    
-    # Teacher preprocessed path DERIVED from teacher output_dir
-    # (automatically set: {teacher.output_dir}/.working/preprocessed_arrays)
-    
     alpha: 0.7        # Hard target weight
     beta: 0.2         # Soft target weight (teacher mimicking)
     gamma: 0.1        # Feature matching weight
     temperature: 4.0  # Softness of teacher logits
   
   # Output directory
-  output_dir: "./GEO Ablation Study/UNI_CLASS_BALANCE_STUDENT_UNIFIED_GEO_no_PCA"
+  output_dir: "./GEO Ablation Study/STUDENT_GENEONLY_GEO_ablation"
 
 # =============================================================================
 # [5] VISUALIZATION CONFIGURATION
@@ -157,12 +153,9 @@ student:
 visualization:
   save_plots: true
   plot_dpi: 150
-  include_spatial: true        # Will gracefully skip if coords missing
+  include_spatial: true
   include_neighborhood: true
   include_comparative: true
-  
-  # Visualization output (derived from student output_dir)
-  # Automatically uses: {student.output_dir}/post-training/visualizations/
 
 # =============================================================================
 # [6] LOGGING
@@ -175,62 +168,29 @@ logging:
   unified_log: "unified_pipeline.log"
 
 # =============================================================================
-# NOTES ON USAGE
+# NOTES
 # =============================================================================
-# 
-# AUTOMATIC PATH DERIVATION:
-# ==============================
-# 1. Teacher trains with PCA models in:
-#    {teacher.output_dir}/.working/preprocessed_arrays/pca_models/
 #
-# 2. Student automatically finds teacher models in:
-#    {teacher.output_dir}/teacher_model_FROZEN.pt
+# ABLATION STUDY GOAL:
+# ====================
+# Determine if gene expression (scVI) features are predictive of ecotypes
 #
-# 3. Student automatically finds teacher PCA models in:
-#    {teacher.output_dir}/.working/preprocessed_arrays/pca_models/
+# ARCHITECTURE:
+# ==============
+# Teacher Input: 171D (UNI:150D + scVI:128D + RCTD:25D)
+# Student Input: 128D (scVI only)
 #
-# 4. All student visualizations saved in:
-#    {student.output_dir}/post-training/visualizations/
+# EXPECTED RESULTS:
+# ==================
+# Likely better than cell-only but worse than image-based because:
+# - Gene expression is informative but lacks spatial morphology
+# - scVI is a latent representation (128D) providing good feature density
+# - But missing H&E morphological patterns captured by UNI
 #
-# NO MANUAL PATH CONFIGURATION NEEDED!
-#
-# FOLDER STRUCTURE CREATED:
-# ===========================
-# GEO Ablation Study/
-# ├── TEACHER_UNIFIED_GEO_0.6_PCA/
-# │   ├── .working/
-# │   │   ├── arrays/
-# │   │   └── preprocessed_arrays/
-# │   │       ├── pca_models/
-# │   │       │   ├── pca_image_encoder.pkl ← Used by student
-# │   │       │   ├── pca_gene_encoder.pkl
-# │   │       │   └── pca_cell_encoder.pkl
-# │   │       └── *.npy (preprocessed embeddings)
-# │   ├── preprocessing/
-# │   ├── training/
-# │   │   ├── models/
-# │   │   ├── metrics/
-# │   │   └── visualizations/
-# │   ├── post-training/
-# │   │   ├── metrics/
-# │   │   └── visualizations/ (spatial heatmaps, etc)
-# │   ├── teacher_model_FROZEN.pt ← Passed to student
-# │   └── pipeline_execution.log
-# │
-# └── STUDENT_UNIFIED_GEO_0.6_PCA/
-#     ├── .working/
-#     │   └── preprocessed_arrays/
-#     │       └── (student PCA models if different)
-#     ├── preprocessing/
-#     ├── training/
-#     │   ├── models/
-#     │   ├── metrics/
-#     │   └── visualizations/
-#     ├── post-training/
-#     │   ├── metrics/
-#     │   └── visualizations/ (comparative, preprocessing)
-#     └── pipeline_execution.log
+# COMPARISON:
+# ===========
+# - Baseline student (UNI): ~56% accuracy
+# - Gene-only student: Expected ~50-60% accuracy
+# - Cell-only student: Expected ~45-50% accuracy
 #
 # =============================================================================
-#bash run_unified_pipeline.sh modular_unified_teacher_student_GEO.yaml
-#./run_unified_pipeline.sh config/modular_unified_teacher_student_GEO.yaml

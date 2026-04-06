@@ -67,7 +67,7 @@ embeddings:
   image_encoder:
     name: "Morphology Encoder"
     file_path: "./YOUR_DATA/YOUR_MORPHOLOGY_EMBEDDINGS.csv"
-    pca_variance: 0.6          # Reduce to 60% variance (adjust as needed)
+    pca_variance: 0.95         # Keep 95% variance (Option 1: More features for student)
     description: "H&E morphology features"
   
   gene_encoder:
