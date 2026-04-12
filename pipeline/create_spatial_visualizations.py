@@ -54,8 +54,6 @@ LABEL_MAPPING_FILE = None
 METADATA_FILE = None
 OUTPUT_DIR = None
 
-PATIENTS = ['P1', 'P2', 'P3', 'P4', 'P5']
-
 # Ecotype colors (from reference code)
 ECOTYPE_COLORS = {
     'Fibrotic': '#E74C3C',              # Red
@@ -74,6 +72,7 @@ LABEL_TO_ECOTYPE = {
 }
 
 # Note: OUTPUT_DIR will be initialized in main() after argument parsing
+# Note: PATIENTS list is NO LONGER HARDCODED - extracted dynamically from data
 
 
 # ============================================================================
@@ -150,8 +149,13 @@ class SpatialVisualizationPipeline:
         predictions_df['array_col'] = np.nan
         predictions_df['array_row'] = np.nan
         
+        # Extract unique patient IDs dynamically from data (NOT hardcoded)
+        # Barcodes are formatted as: patient_id_barcode_suffix
+        # Extract patient_id from predictions DataFrame directly
+        unique_patients = sorted(predictions_df['patient_id'].unique())
+        
         # For each patient, apply PCA to their embeddings
-        for patient_id in PATIENTS:
+        for patient_id in unique_patients:
             # Get all spots for this patient
             patient_mask = predictions_df['patient_id'] == patient_id
             patient_spots = predictions_df[patient_mask].copy()
