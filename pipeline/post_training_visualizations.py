@@ -109,6 +109,45 @@ class PostTrainingVisualizer:
         
         self.config = config or {}
         
+        # Build correct label mappings from config
+        self.ecotype_names = ECOTYPE_NAMES.copy()
+        self.ecotype_colors = ECOTYPE_COLORS.copy()
+        self.ecotype_short = ECOTYPE_SHORT.copy()
+        
+        # Try to load from config and correct for 1-indexed CSV labels
+        if self.config:
+            try:
+                input_dataset_config = self.config.get('input_dataset', {})
+                labels_file = input_dataset_config.get('labels_file', '')
+                label_mapping_file = input_dataset_config.get('label_mapping_file', '')
+                
+                if labels_file and label_mapping_file:
+                    #Convert relative paths to absolute if needed
+                    if not Path(labels_file).is_absolute():
+                        labels_file = str(Path.cwd() / labels_file)
+                    if not Path(label_mapping_file).is_absolute():
+                        label_mapping_file = str(Path.cwd() / label_mapping_file)
+                    
+                    if Path(labels_file).exists() and Path(label_mapping_file).exists():
+                        # Load original CSV to detect label shift
+                        labels_csv = pd.read_csv(labels_file, index_col=0)
+                        original_labels = sorted(labels_csv.iloc[:, 0].unique())
+                        
+                        # Load label mapping JSON
+                        with open(label_mapping_file, 'r') as f:
+                            label_mapping = json.load(f)
+                        
+                        # Create corrected mapping from training index to ecotype name
+                        if original_labels[0] != 0:
+                            # CSV is 1-indexed, create mapping
+                            for train_idx, orig_label in enumerate(original_labels):
+                                mapped_name = label_mapping['labels'].get(str(int(orig_label)), 'Unknown')
+                                self.ecotype_names[train_idx] = mapped_name
+                                # Keep colors as is (just remapped names)
+            except Exception as e:
+                print(f"  ⚠️  Could not correct label mapping from config: {e}")
+                print(f"      Using default mappings")
+        
         # Create subdirectories
         self.visualizations = {
             'training': self.output_dir / 'training_curves',
@@ -216,7 +255,7 @@ class PostTrainingVisualizer:
         
         # Create display
         disp = ConfusionMatrixDisplay(confusion_matrix=cm, 
-                                      display_labels=[ECOTYPE_SHORT[i] for i in range(5)])
+                                      display_labels=[self.ecotype_short[i] for i in range(len(cm))])
         disp.plot(ax=ax, cmap='Blues', values_format='d', im_kws={'cmap': 'Blues'})
         
         # Format
@@ -248,7 +287,7 @@ class PostTrainingVisualizer:
         fig, ax = plt.subplots(figsize=figsize)
         
         disp = ConfusionMatrixDisplay(confusion_matrix=cm_normalized,
-                                      display_labels=[ECOTYPE_SHORT[i] for i in range(5)])
+                                      display_labels=[self.ecotype_short[i] for i in range(len(cm_normalized))])
         disp.plot(ax=ax, cmap='Greens', values_format='.3f', im_kws={'cmap': 'Greens'})
         
         ax.set_title('Normalized Confusion Matrix\n(Recall per Class)', 
@@ -408,8 +447,8 @@ class PostTrainingVisualizer:
             mask = ground_truth == ecotype_id
             ax.scatter(
                 spatial_coords[mask, 0], spatial_coords[mask, 1],
-                c=ECOTYPE_COLORS[ecotype_id],
-                label=ECOTYPE_NAMES[ecotype_id],
+                c=self.ecotype_colors.get(ecotype_id, '#808080'),
+                label=self.ecotype_names.get(ecotype_id, f'Class {ecotype_id}'),
                 s=60, alpha=0.7, edgecolors='black', linewidth=0.5
             )
         ax.set_xlabel('Array Column', fontsize=11, fontweight='bold')
@@ -426,8 +465,8 @@ class PostTrainingVisualizer:
             mask = predictions == ecotype_id
             ax.scatter(
                 spatial_coords[mask, 0], spatial_coords[mask, 1],
-                c=ECOTYPE_COLORS[ecotype_id],
-                label=ECOTYPE_NAMES[ecotype_id],
+                c=self.ecotype_colors.get(ecotype_id, '#808080'),
+                label=self.ecotype_names.get(ecotype_id, f'Class {ecotype_id}'),
                 s=60, alpha=0.7, edgecolors='black', linewidth=0.5
             )
         accuracy = (ground_truth == predictions).mean() * 100
@@ -510,9 +549,9 @@ class PostTrainingVisualizer:
             spots = np.where(predictions == ecotype_id)[0]
             
             if len(spots) == 0:
-                ax.text(0.5, 0.5, f'No {ECOTYPE_NAMES[ecotype_id]} spots',
+                ax.text(0.5, 0.5, f'No {self.ecotype_names.get(ecotype_id, f"Class {ecotype_id}")} spots',
                        ha='center', va='center', fontsize=12)
-                ax.set_title(f'{ECOTYPE_NAMES[ecotype_id]}', fontsize=12, fontweight='bold')
+                ax.set_title(f'{self.ecotype_names.get(ecotype_id, f"Class {ecotype_id}")}', fontsize=12, fontweight='bold')
                 continue
             
             # Count neighbor ecotypes
@@ -533,7 +572,7 @@ class PostTrainingVisualizer:
                 neighbor_pcts = np.zeros(5)
             
             # Plot bar chart
-            colors = [ECOTYPE_COLORS[i] for i in range(5)]
+            colors = [self.ecotype_colors.get(i, '#808080') for i in range(5)]
             bars = ax.bar(range(5), neighbor_pcts, color=colors, edgecolor='black', linewidth=1.5)
             
             # Add value labels on bars
@@ -543,10 +582,10 @@ class PostTrainingVisualizer:
                        f'{height:.1f}%', ha='center', va='bottom', fontsize=10, fontweight='bold')
             
             ax.set_ylabel('Neighbor Percentage (%)', fontsize=10, fontweight='bold')
-            ax.set_title(f'{ECOTYPE_NAMES[ecotype_id]} Neighborhood\n(n={len(spots)} spots)',
+            ax.set_title(f'{self.ecotype_names.get(ecotype_id, f"Class {ecotype_id}")} Neighborhood\n(n={len(spots)} spots)',
                         fontsize=11, fontweight='bold')
             ax.set_xticks(range(5))
-            ax.set_xticklabels([ECOTYPE_SHORT[i] for i in range(5)], fontsize=9)
+            ax.set_xticklabels([self.ecotype_short.get(i, f'C{i}') for i in range(5)], fontsize=9)
             ax.grid(True, alpha=0.3, axis='y')
             ax.set_ylim(0, max(neighbor_pcts) * 1.15)
         
@@ -588,7 +627,7 @@ class PostTrainingVisualizer:
         
         # Create hover text
         hover_text = [
-            f"Ecotype: {ECOTYPE_NAMES[pred]}<br>X: {x:.2f}<br>Y: {y:.2f}<br>Z: {z:.2f}"
+            f"Ecotype: {self.ecotype_names.get(pred, f'Class {pred}')}<br>X: {x:.2f}<br>Y: {y:.2f}<br>Z: {z:.2f}"
             for pred, x, y, z in zip(predictions, spatial_coords[:, 0], spatial_coords[:, 1], z_values)
         ]
         
@@ -603,10 +642,10 @@ class PostTrainingVisualizer:
                 y=spatial_coords[mask, 1],
                 z=z_values[mask],
                 mode='markers',
-                name=ECOTYPE_NAMES[ecotype_id],
+                name=self.ecotype_names.get(ecotype_id, f'Class {ecotype_id}'),
                 marker=dict(
                     size=4,
-                    color=ECOTYPE_COLORS[ecotype_id],
+                    color=self.ecotype_colors.get(ecotype_id, '#808080'),
                     opacity=0.7,
                     line=dict(color='black', width=0.5)
                 ),

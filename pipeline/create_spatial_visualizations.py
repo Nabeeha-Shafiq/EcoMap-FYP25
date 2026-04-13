@@ -121,9 +121,36 @@ class SpatialVisualizationPipeline:
         metadata_df = pd.read_csv(METADATA_FILE)
         print(f"✓ Metadata loaded: {len(metadata_df)} spots")
         
-        # Create ecotype name columns
-        predictions_df['ground_truth_ecotype'] = predictions_df['ground_truth_label'].map(LABEL_TO_ECOTYPE)
-        predictions_df['predicted_ecotype'] = predictions_df['predicted_label'].map(LABEL_TO_ECOTYPE)
+        # FIX: Create correct label mapping accounting for CSV indexing shift
+        # The CSV may have 1-indexed labels that get converted to 0-indexed during training
+        # We need to create a mapping from 0-indexed predictions back to label names
+        labels_csv_path = Path(LABEL_MAPPING_FILE).parent / 'barcode_labels.csv'
+        if labels_csv_path.exists():
+            labels_csv = pd.read_csv(labels_csv_path, index_col=0)
+            original_labels = labels_csv.iloc[:, 0].unique()
+            unique_orig_labels = sorted(original_labels)
+            print(f"\n  ℹ️  Original CSV labels: {unique_orig_labels}")
+            
+            # Create mapping from 0-indexed (training index) to label name
+            # If CSV has 1-indexed labels (1, 2, 3), they become 0-indexed (0, 1, 2) during training
+            label_shift = unique_orig_labels[0] if unique_orig_labels[0] != 0 else 0
+            LABEL_TO_ECOTYPE_CORRECTED = {}
+            
+            for train_idx, orig_label in enumerate(unique_orig_labels):
+                # Map the training index to the original label value
+                mapped_label = label_mapping['labels'].get(str(int(orig_label)), 'Unknown')
+                LABEL_TO_ECOTYPE_CORRECTED[train_idx] = mapped_label
+                print(f"  Training index {train_idx} → Original label {int(orig_label)} → {mapped_label}")
+            
+            print("\n✓ Corrected label mapping created from original CSV\n")
+        else:
+            print(f"\n⚠️  Could not find original CSV at {labels_csv_path}")
+            print(f"   Using default label mapping (may be incorrect if CSV is not 0-indexed)")
+            LABEL_TO_ECOTYPE_CORRECTED = LABEL_TO_ECOTYPE
+        
+        # Create ecotype name columns using corrected mapping
+        predictions_df['ground_truth_ecotype'] = predictions_df['ground_truth_label'].map(LABEL_TO_ECOTYPE_CORRECTED)
+        predictions_df['predicted_ecotype'] = predictions_df['predicted_label'].map(LABEL_TO_ECOTYPE_CORRECTED)
         
         # Verify confidence column exists from training/predictions
         if 'confidence' in predictions_df.columns:
