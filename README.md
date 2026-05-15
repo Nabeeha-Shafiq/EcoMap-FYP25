@@ -12,8 +12,8 @@ source ../.venv/bin/activate
 # Create data directory
 mkdir -p data/
 
-For reference, the 3 datasets we used are provided at this link https://drive.google.com/drive/folders/1h2mY0to3B52E_IKbG4DPKqhckzK-08o-?usp=sharing, simply unzip these folders in the project root and add the data directory paths in the config file relatively.
 ```
+For reference, the 3 datasets we used are provided at this link https://drive.google.com/drive/folders/1h2mY0to3B52E_IKbG4DPKqhckzK-08o-?usp=sharing, simply unzip these folders in the project root and add the data directory paths in the config file relatively.
 
 ### 2. Prepare Data
 Place CSV files in `data/input_dataset/`:
