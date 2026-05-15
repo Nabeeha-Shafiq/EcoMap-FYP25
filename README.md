@@ -155,7 +155,8 @@ results/
 │
 └── post-training/
     ├── metrics/            # Post-training evaluation
-    └── visualizations/     # Ecotype maps, confidence heatmaps, 3D plots
+    └── visualizations/     # Ecotype maps, confidence heatmaps, spatial localisation plots
+
 ```
 
 ---
