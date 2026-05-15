@@ -159,6 +159,11 @@ results/
 
 ```
 
+
+<img width="2901" height="1796" alt="P5_neighborhood_analysis" src="https://github.com/user-attachments/assets/5e55e47e-c3de-44bf-8200-de7d4d895b10" />
+
+
+
 ---
 
 ## 8. Reproducing on a New Dataset
