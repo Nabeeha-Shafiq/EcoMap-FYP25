@@ -1,4 +1,4 @@
-# Modular EcoMap MLP 5 Ecotype Classification Pipeline 
+# Modular EcoMap MLP 5 Ecotype Classification Pipeline (MultiModal Teacher Training Branch)
 
 A reproducible pipeline for fusing multi-modal embeddings (UNI, scVI, RCTD) and training an MLP classifier with spatial validation.
 
